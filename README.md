@@ -23,6 +23,10 @@
 |Color space|-|
 |CRC check|-|
 
+## References
+
+* https://www.w3.org/TR/png/
+
 ## LICENSE
 
 MIT License

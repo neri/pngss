@@ -22,7 +22,7 @@ fn main() {
         let time_inflate0 = std::time::Instant::now();
         for _ in 0..times {
             let mut decoder = pngss::PngDecoder::new(&data).unwrap();
-            let data = decoder.get_idat_chunks(true).unwrap();
+            let data = decoder.get_idat_chunks(false).unwrap();
             compress::deflate::Deflate::inflate(&data, usize::MAX).unwrap();
             drop(decoder);
         }

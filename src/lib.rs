@@ -89,7 +89,7 @@ impl<'a> PngDecoder<'a> {
     /// Look for IDAT chunks and merge buffers if necessary
     pub fn get_idat_chunks(&mut self, skip_plte: bool) -> Result<Cow<'a, [u8]>, DecodeError> {
         let mut data = Option::<Cow<'a, [u8]>>::None;
-        if skip_plte {
+        if !skip_plte {
             loop {
                 let chunk = self.peek_chunk()?;
                 match chunk.chunk_type() {
@@ -164,7 +164,7 @@ impl<'a> PngDecoder<'a> {
         }
 
         // Get IDAT chunks
-        let data = self.get_idat_chunks(false)?;
+        let data = self.get_idat_chunks(true)?;
 
         // Decompress the IDAT data
         let inflated = Deflate::inflate(
