@@ -1,0 +1,13 @@
+[package]
+name = "pngss"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+# compress = { path = "../compress" }
+compress = { git = "https://github.com/neri/compress.git" }
+
+[workspace]
+members = [
+    "viewer",
+]
