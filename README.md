@@ -6,7 +6,11 @@
 * Support for `no_std`
 * It generally provides sufficient functionality for most applications, but some features are not supported.
 
-## Supported feature
+### MSRV
+
+* The latest version is recommended whenever possible.
+
+### Supported features
 
 |feature|supported|
 |-|-|
@@ -18,10 +22,6 @@
 |Interlace|-|
 |Color space|-|
 |CRC check|-|
-
-### MSRV
-
-* The latest version is recommended whenever possible.
 
 ## LICENSE
 

@@ -49,14 +49,23 @@ impl<'a> PngDecoder<'a> {
         if width == 0 || height == 0 {
             return Err(DecodeError::InvalidData);
         }
-        let bit_depth = ihdr.data()[8];
+        if cfg!(target_pointer_width = "32") && (width.saturating_mul(height) > 0x1000_0000) {
+            // maybe overflow
+            return Err(DecodeError::UnsupportedFormat);
+        }
+        let Some(bit_depth) = BitDepth::new(ihdr.data()[8]) else {
+            return Err(DecodeError::UnsupportedFormat);
+        };
         let color_type = ihdr.data()[9];
         let image_type = match (color_type, bit_depth) {
-            (0, 8) => ImageType::Grayscale,
-            (2, 8) => ImageType::RGB,
-            (3, 1) | (3, 2) | (3, 4) | (3, 8) => ImageType::Indexed,
-            (4, 8) => ImageType::GrayscaleAlpha,
-            (6, 8) => ImageType::RGBA,
+            (0, BitDepth::Bpp8) => ImageType::Grayscale,
+            (2, BitDepth::Bpp8) => ImageType::RGB,
+            (3, BitDepth::Bpp1)
+            | (3, BitDepth::Bpp2)
+            | (3, BitDepth::Bpp4)
+            | (3, BitDepth::Bpp8) => ImageType::Indexed,
+            (4, BitDepth::Bpp8) => ImageType::GrayscaleAlpha,
+            (6, BitDepth::Bpp8) => ImageType::RGBA,
             _ => return Err(DecodeError::UnsupportedFormat),
         };
         let compression_method = ihdr.data()[10];
@@ -77,37 +86,24 @@ impl<'a> PngDecoder<'a> {
         Ok(PngDecoder { iter, info })
     }
 
-    pub fn decode(&mut self) -> Result<ImageData, DecodeError> {
-        let mut palette = None;
-
-        // Read chunks before IDAT
-        loop {
-            let chunk = self.peek_chunk()?;
-            match chunk.chunk_type() {
-                FourCC::IDAT => break,
-                FourCC::PLTE => {
-                    if chunk.len() % 3 != 0 || palette.is_some() {
-                        return Err(DecodeError::InvalidData);
-                    }
-                    palette = Some(
-                        chunk
-                            .data()
-                            .chunks_exact(3)
-                            .map(|v| RGB888::new(v[0], v[1], v[2]))
-                            .collect(),
-                    );
-                }
-                four_cc => {
-                    if four_cc.is_critical() {
-                        return Err(DecodeError::UnsupportedFormat);
-                    }
-                }
-            }
-            self.next_chunk()?;
-        }
-
-        // Read IDAT chunks
+    /// Look for IDAT chunks and merge buffers if necessary
+    pub fn get_idat_chunks(&mut self, skip_plte: bool) -> Result<Cow<'a, [u8]>, DecodeError> {
         let mut data = Option::<Cow<'a, [u8]>>::None;
+        if skip_plte {
+            loop {
+                let chunk = self.peek_chunk()?;
+                match chunk.chunk_type() {
+                    FourCC::IDAT => break,
+                    FourCC::PLTE => {}
+                    _ => {
+                        if chunk.chunk_type().is_critical() {
+                            return Err(DecodeError::UnsupportedFormat);
+                        }
+                    }
+                }
+                self.next_chunk()?;
+            }
+        }
         loop {
             let chunk = self.next_chunk()?;
             if chunk.is_iend() {
@@ -135,30 +131,71 @@ impl<'a> PngDecoder<'a> {
             }
         }
 
-        // Decompress the IDAT data
-        let data = data.ok_or(DecodeError::InvalidData)?;
-        let inflated = Deflate::inflate(&data, usize::MAX).map_err(|_| DecodeError::InvalidData)?;
+        data.ok_or(DecodeError::InvalidData)
+    }
 
-        // process filter
-        let mut iter = inflated.iter();
-        let iter = &mut iter;
-        let mut reconstructed = Vec::new();
+    pub fn decode(&mut self) -> Result<ImageData, DecodeError> {
+        let mut palette = Option::<Vec<RGB888>>::None;
+
+        // Read chunks before IDAT
+        loop {
+            let chunk = self.peek_chunk()?;
+            match chunk.chunk_type() {
+                FourCC::IDAT => break,
+                FourCC::PLTE => {
+                    if chunk.len() % 3 != 0 || palette.is_some() {
+                        return Err(DecodeError::InvalidData);
+                    }
+                    palette = Some(
+                        chunk
+                            .data()
+                            .chunks_exact(3)
+                            .map(|v| RGB888::new(v[0], v[1], v[2]))
+                            .collect(),
+                    );
+                }
+                four_cc => {
+                    if four_cc.is_critical() {
+                        return Err(DecodeError::UnsupportedFormat);
+                    }
+                }
+            }
+            self.next_chunk()?;
+        }
+
+        // Get IDAT chunks
+        let data = self.get_idat_chunks(false)?;
+
+        // Decompress the IDAT data
+        let inflated = Deflate::inflate(
+            &data,
+            (1 + self.info.width as usize * self.info.image_type.n_channels() as usize)
+                * self.info.height as usize,
+        )
+        .map_err(|_| DecodeError::InvalidData)?;
+
+        // process filters
+        let mut source = inflated.as_slice();
         let stride = if self.info.image_type == ImageType::Indexed {
             (self.info.width as usize * self.info.bit_depth as usize + 7) / 8
         } else {
             self.info.width as usize * self.info.image_type.n_channels() as usize
         };
-        let mut prev_line = Vec::new();
+        let mut reconstructed = Vec::with_capacity(stride * self.info.height as usize);
+        let mut prev_line = Vec::with_capacity(stride);
+        let mut line = Vec::with_capacity(stride);
         for _y in 0..self.info.height as usize {
-            let filter_type = iter
-                .next()
-                .and_then(|&v| FilterType::new(v))
-                .ok_or(DecodeError::InvalidData)?;
-            let line_src = iter.take(stride).copied().collect::<Vec<_>>();
-            let mut line = Vec::new();
+            let Some((filter_type, next)) = source.split_at_checked(1) else {
+                return Err(DecodeError::InvalidData);
+            };
+            let filter_type = FilterType::new(filter_type[0]).ok_or(DecodeError::InvalidData)?;
+            let Some((line_src, next)) = next.split_at_checked(stride) else {
+                return Err(DecodeError::InvalidData);
+            };
+            line.clear();
             match filter_type {
                 FilterType::None => {
-                    line = line_src.clone();
+                    line.extend_from_slice(line_src);
                 }
                 FilterType::Sub => match self.info.image_type.n_channels() {
                     1 => {
@@ -224,7 +261,7 @@ impl<'a> PngDecoder<'a> {
                 },
                 FilterType::Up => {
                     if prev_line.is_empty() {
-                        line = line_src.clone();
+                        line.extend_from_slice(line_src);
                     } else {
                         for (&x, &above) in line_src.iter().zip(prev_line.iter()) {
                             line.push(x.wrapping_add(above));
@@ -383,14 +420,16 @@ impl<'a> PngDecoder<'a> {
                 },
             }
             reconstructed.extend_from_slice(&line);
-            prev_line = line;
+            core::mem::swap(&mut line, &mut prev_line);
+            source = next;
         }
 
         // fix bit depth less than 8
-        if self.info.bit_depth < 8 {
-            let mut fixed = Vec::new();
+        if self.info.bit_depth < BitDepth::Bpp8 {
+            let mut fixed =
+                Vec::with_capacity(self.info.width as usize * self.info.height as usize);
             match self.info.bit_depth {
-                1 => {
+                BitDepth::Bpp1 => {
                     let mut iter = reconstructed.iter();
                     let iter = &mut iter;
                     let w8 = self.info.width as usize / 8;
@@ -409,7 +448,7 @@ impl<'a> PngDecoder<'a> {
                         }
                     }
                 }
-                2 => {
+                BitDepth::Bpp2 => {
                     let mut iter = reconstructed.iter();
                     let iter = &mut iter;
                     let w4 = self.info.width as usize / 4;
@@ -428,7 +467,7 @@ impl<'a> PngDecoder<'a> {
                         }
                     }
                 }
-                4 => {
+                BitDepth::Bpp4 => {
                     let mut iter = reconstructed.iter();
                     let iter = &mut iter;
                     let w2 = self.info.width as usize / 2;
@@ -447,9 +486,22 @@ impl<'a> PngDecoder<'a> {
                         }
                     }
                 }
-                _ => unreachable!(),
+                BitDepth::Bpp8 => {
+                    unreachable!()
+                }
             }
             reconstructed = fixed;
+        }
+
+        // pallete check
+        if self.info.image_type == ImageType::Indexed {
+            let Some(palette) = palette.as_ref() else {
+                return Err(DecodeError::InvalidData);
+            };
+            let max_index = reconstructed.iter().copied().max().unwrap() as usize;
+            if palette.len() > 256 || max_index >= palette.len() {
+                return Err(DecodeError::InvalidData);
+            }
         }
 
         // return the image data

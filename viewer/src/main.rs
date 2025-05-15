@@ -1,9 +1,6 @@
 //! sample PNG image viewer
 
-#[allow(unused)]
-use embedded_graphics::{image::Image, pixelcolor::Rgb565, prelude::*};
-use embedded_graphics::{image::ImageRaw, pixelcolor::Rgb888};
-#[allow(unused)]
+use embedded_graphics::{image::Image, image::ImageRaw, pixelcolor::Rgb888, prelude::*};
 use embedded_graphics_simulator::{OutputSettingsBuilder, SimulatorDisplay, Window};
 use std::{env, fs::File, io::Read, path::Path};
 

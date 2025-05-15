@@ -13,7 +13,7 @@ pub struct ImageData {
 pub struct ImageInfo {
     pub width: u32,
     pub height: u32,
-    pub bit_depth: u8,
+    pub bit_depth: BitDepth,
     pub image_type: ImageType,
 }
 
@@ -99,9 +99,7 @@ impl ImageType {
         match self {
             Self::RGBA => {
                 // No conversion needed
-                RgbaBytes {
-                    inner: Cow::Borrowed(input),
-                }
+                RgbaBytes(Cow::Borrowed(input))
             }
             _ => {
                 // Convert to RGBA
@@ -113,9 +111,7 @@ impl ImageType {
                     output.push(rgba.b());
                     output.push(rgba.a());
                 }
-                RgbaBytes {
-                    inner: Cow::Owned(output),
-                }
+                RgbaBytes(Cow::Owned(output))
             }
         }
     }
@@ -124,9 +120,7 @@ impl ImageType {
         match self {
             Self::RGB => {
                 // No conversion needed
-                RgbBytes {
-                    inner: Cow::Borrowed(input),
-                }
+                RgbBytes(Cow::Borrowed(input))
             }
             _ => {
                 // Convert to RGB
@@ -137,9 +131,7 @@ impl ImageType {
                     output.push(rgba.g());
                     output.push(rgba.b());
                 }
-                RgbBytes {
-                    inner: Cow::Owned(output),
-                }
+                RgbBytes(Cow::Owned(output))
             }
         }
     }
@@ -180,42 +172,68 @@ impl ImageData {
     }
 }
 
-pub struct RgbaBytes<'a> {
-    inner: Cow<'a, [u8]>,
-}
+pub struct RgbaBytes<'a>(Cow<'a, [u8]>);
 
 impl Deref for RgbaBytes<'_> {
     type Target = [u8];
 
     #[inline]
     fn deref(&self) -> &Self::Target {
-        self.inner.as_ref()
+        self.0.as_ref()
     }
 }
 
 impl DerefMut for RgbaBytes<'_> {
     #[inline]
     fn deref_mut(&mut self) -> &mut Self::Target {
-        self.inner.to_mut()
+        self.0.to_mut()
     }
 }
 
-pub struct RgbBytes<'a> {
-    inner: Cow<'a, [u8]>,
-}
+pub struct RgbBytes<'a>(Cow<'a, [u8]>);
 
 impl Deref for RgbBytes<'_> {
     type Target = [u8];
 
     #[inline]
     fn deref(&self) -> &Self::Target {
-        self.inner.as_ref()
+        self.0.as_ref()
     }
 }
 
 impl DerefMut for RgbBytes<'_> {
     #[inline]
     fn deref_mut(&mut self) -> &mut Self::Target {
-        self.inner.to_mut()
+        self.0.to_mut()
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum BitDepth {
+    Bpp1 = 1,
+    Bpp2 = 2,
+    Bpp4 = 4,
+    Bpp8 = 8,
+}
+
+impl BitDepth {
+    pub fn new(val: u8) -> Option<Self> {
+        match val {
+            1 => Some(Self::Bpp1),
+            2 => Some(Self::Bpp2),
+            4 => Some(Self::Bpp4),
+            8 => Some(Self::Bpp8),
+            _ => None,
+        }
+    }
+
+    #[inline]
+    pub fn bits_per_pixel(&self) -> u8 {
+        match self {
+            Self::Bpp1 => 1,
+            Self::Bpp2 => 2,
+            Self::Bpp4 => 4,
+            Self::Bpp8 => 8,
+        }
     }
 }

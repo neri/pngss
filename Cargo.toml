@@ -4,10 +4,14 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+compress.workspace = true
+
+[workspace.dependencies]
 # compress = { path = "../compress" }
 compress = { git = "https://github.com/neri/compress.git" }
 
 [workspace]
 members = [
+    "bench",
     "viewer",
 ]
