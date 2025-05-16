@@ -137,11 +137,23 @@ impl<'a> PngDecoder<'a> {
         let data = chunks.get_idat_chunks(true)?;
 
         // Decompress the IDAT data
-        let stride = self.info.width as usize * self.info.image_type.n_channels() as usize;
-        let inflated = Deflate::inflate(&data, (1 + stride) * self.info.height as usize)
-            .map_err(|_| DecodeError::InvalidData)?;
+        let inflated = Deflate::inflate(
+            &data,
+            (1 + self.info.width as usize * self.info.image_type.n_channels() as usize)
+                * self.info.height as usize,
+        )
+        .map_err(|_| DecodeError::InvalidData)?;
 
         // process filters
+        let stride = if self.info.bit_depth > BitDepth::Bpp8 {
+            self.info.width as usize * self.info.image_type.n_channels() as usize
+        } else {
+            (self.info.width as usize
+                * self.info.image_type.n_channels() as usize
+                * self.info.bit_depth as usize
+                + 7)
+                / 8
+        };
         let mut source = inflated.as_slice();
         let mut reconstructed = Vec::with_capacity(stride * self.info.height as usize);
         let mut prev_line = Vec::with_capacity(stride);
