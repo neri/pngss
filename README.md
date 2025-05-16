@@ -18,7 +18,8 @@
 |PLTE chunk|✅|
 |IDAT chunk|✅|
 |IEND chunk|✅|
-|16bit color|-|
+|8bit depth color|✅|
+|16bit depth color|-|
 |Interlace|-|
 |Color space|-|
 |CRC check|-|

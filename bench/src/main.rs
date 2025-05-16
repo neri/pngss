@@ -21,8 +21,8 @@ fn main() {
     loop {
         let time_inflate0 = std::time::Instant::now();
         for _ in 0..times {
-            let mut decoder = pngss::PngDecoder::new(&data).unwrap();
-            let data = decoder.get_idat_chunks(false).unwrap();
+            let decoder = pngss::PngDecoder::new(&data).unwrap();
+            let data = decoder.chunks().get_idat_chunks(false).unwrap();
             compress::deflate::Deflate::inflate(&data, usize::MAX).unwrap();
             drop(decoder);
         }
@@ -30,7 +30,7 @@ fn main() {
 
         let time_pngss0 = std::time::Instant::now();
         for _ in 0..times {
-            let mut decoder = pngss::PngDecoder::new(&data).unwrap();
+            let decoder = pngss::PngDecoder::new(&data).unwrap();
             let decoded = decoder.decode().unwrap();
             decoded.to_rgb_bytes();
             drop(decoder);

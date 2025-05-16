@@ -13,7 +13,7 @@ fn main() {
     let mut data = Vec::new();
     file.read_to_end(&mut data).expect("file cannot read");
 
-    let mut decoder = pngss::PngDecoder::new(&data).expect("unexpected file format");
+    let decoder = pngss::PngDecoder::new(&data).expect("unexpected file format");
     let image_info = decoder.info().clone();
     println!("{:?}", image_info);
     let decoded = decoder.decode().expect("decode failed");

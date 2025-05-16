@@ -19,7 +19,7 @@ pub use image_data::*;
 pub const PNG_SIGNATURE: &[u8; 8] = b"\x89PNG\x0D\x0A\x1A\x0A";
 
 pub struct PngDecoder<'a> {
-    iter: slice::Iter<'a, u8>,
+    slice: &'a [u8],
     info: ImageInfo,
 }
 
@@ -31,13 +31,18 @@ pub enum DecodeError {
 
 impl<'a> PngDecoder<'a> {
     pub fn new(input: &'a [u8]) -> Result<PngDecoder<'a>, DecodeError> {
-        if input.len() < 8 || &input[0..8] != PNG_SIGNATURE {
+        let Some((signature, next)) = input.split_at_checked(8) else {
+            return Err(DecodeError::InvalidData);
+        };
+        if signature != PNG_SIGNATURE {
             return Err(DecodeError::InvalidData);
         }
-        let mut iter = input.iter();
-        iter.nth(7); // Skip the signature
 
-        let ihdr = Self::_next_chunk(&mut iter)?;
+        let Some((ihdr, next)) = next.split_at_checked(25) else {
+            return Err(DecodeError::InvalidData);
+        };
+        let mut ihdr = Chunks { iter: ihdr.iter() };
+        let ihdr = ihdr.next_chunk()?;
         if ihdr.chunk_type() != FourCC::IHDR {
             return Err(DecodeError::InvalidData);
         }
@@ -83,63 +88,28 @@ impl<'a> PngDecoder<'a> {
             image_type,
         };
 
-        Ok(PngDecoder { iter, info })
+        Ok(PngDecoder { slice: next, info })
     }
 
-    /// Look for IDAT chunks and merge buffers if necessary
-    pub fn get_idat_chunks(&mut self, skip_plte: bool) -> Result<Cow<'a, [u8]>, DecodeError> {
-        let mut data = Option::<Cow<'a, [u8]>>::None;
-        if !skip_plte {
-            loop {
-                let chunk = self.peek_chunk()?;
-                match chunk.chunk_type() {
-                    FourCC::IDAT => break,
-                    FourCC::PLTE => {}
-                    _ => {
-                        if chunk.chunk_type().is_critical() {
-                            return Err(DecodeError::UnsupportedFormat);
-                        }
-                    }
-                }
-                self.next_chunk()?;
-            }
+    #[inline]
+    pub fn chunks(&self) -> Chunks<'a> {
+        Chunks {
+            iter: self.slice.iter(),
         }
-        loop {
-            let chunk = self.next_chunk()?;
-            if chunk.is_iend() {
-                break;
-            }
-            if chunk.chunk_type() != FourCC::IDAT {
-                if chunk.chunk_type().is_critical() {
-                    return Err(DecodeError::UnsupportedFormat);
-                }
-                continue;
-            }
-            if let Some(v) = data.as_mut() {
-                match v {
-                    Cow::Borrowed(v) => {
-                        let mut v = v.to_vec();
-                        v.extend_from_slice(chunk.data());
-                        data = Some(v.into());
-                    }
-                    Cow::Owned(v) => {
-                        v.extend_from_slice(chunk.data());
-                    }
-                }
-            } else {
-                data = Some(Cow::Borrowed(chunk.data()));
-            }
-        }
-
-        data.ok_or(DecodeError::InvalidData)
     }
 
-    pub fn decode(&mut self) -> Result<ImageData, DecodeError> {
+    #[inline]
+    pub fn info(&self) -> &ImageInfo {
+        &self.info
+    }
+
+    pub fn decode(&self) -> Result<ImageData, DecodeError> {
+        let mut chunks = self.chunks();
         let mut palette = Option::<Vec<RGB888>>::None;
 
         // Read chunks before IDAT
         loop {
-            let chunk = self.peek_chunk()?;
+            let chunk = chunks.peek_chunk()?;
             match chunk.chunk_type() {
                 FourCC::IDAT => break,
                 FourCC::PLTE => {
@@ -160,27 +130,19 @@ impl<'a> PngDecoder<'a> {
                     }
                 }
             }
-            self.next_chunk()?;
+            chunks.next_chunk()?;
         }
 
         // Get IDAT chunks
-        let data = self.get_idat_chunks(true)?;
+        let data = chunks.get_idat_chunks(true)?;
 
         // Decompress the IDAT data
-        let inflated = Deflate::inflate(
-            &data,
-            (1 + self.info.width as usize * self.info.image_type.n_channels() as usize)
-                * self.info.height as usize,
-        )
-        .map_err(|_| DecodeError::InvalidData)?;
+        let stride = self.info.width as usize * self.info.image_type.n_channels() as usize;
+        let inflated = Deflate::inflate(&data, (1 + stride) * self.info.height as usize)
+            .map_err(|_| DecodeError::InvalidData)?;
 
         // process filters
         let mut source = inflated.as_slice();
-        let stride = if self.info.image_type == ImageType::Indexed {
-            (self.info.width as usize * self.info.bit_depth as usize + 7) / 8
-        } else {
-            self.info.width as usize * self.info.image_type.n_channels() as usize
-        };
         let mut reconstructed = Vec::with_capacity(stride * self.info.height as usize);
         let mut prev_line = Vec::with_capacity(stride);
         let mut line = Vec::with_capacity(stride);
@@ -416,7 +378,7 @@ impl<'a> PngDecoder<'a> {
                             upper_left_a = a_a;
                         }
                     }
-                    _ => todo!(),
+                    _ => unreachable!(),
                 },
             }
             reconstructed.extend_from_slice(&line);
@@ -511,25 +473,21 @@ impl<'a> PngDecoder<'a> {
             data: reconstructed,
         })
     }
+}
 
+pub struct Chunks<'a> {
+    iter: slice::Iter<'a, u8>,
+}
+
+impl<'a> Chunks<'a> {
     pub fn next_chunk(&mut self) -> Result<PngChunk<'a>, DecodeError> {
-        let chunk = Self::_next_chunk(&mut self.iter)?;
+        let chunk = self.peek_chunk()?;
+        self.iter.nth(chunk.len() + 11);
         Ok(chunk)
     }
 
-    pub fn peek_chunk(&mut self) -> Result<PngChunk<'a>, DecodeError> {
-        let chunk = Self::_peek_chunk(&mut self.iter)?;
-        Ok(chunk)
-    }
-
-    fn _next_chunk(iter: &mut slice::Iter<'a, u8>) -> Result<PngChunk<'a>, DecodeError> {
-        let chunk = Self::_peek_chunk(iter)?;
-        iter.nth(chunk.len() + 11);
-        Ok(chunk)
-    }
-
-    fn _peek_chunk(iter: &slice::Iter<'a, u8>) -> Result<PngChunk<'a>, DecodeError> {
-        let slice = iter.as_slice();
+    pub fn peek_chunk(&self) -> Result<PngChunk<'a>, DecodeError> {
+        let slice = self.iter.as_slice();
         if slice.len() < 12 {
             return Err(DecodeError::InvalidData);
         }
@@ -549,21 +507,64 @@ impl<'a> PngDecoder<'a> {
         let crc = Be32(next[..4].try_into().unwrap()).as_u32();
 
         Ok(PngChunk {
-            length,
+            len: length,
             chunk_type,
             data,
             crc,
         })
     }
 
-    #[inline]
-    pub fn info(&self) -> &ImageInfo {
-        &self.info
+    /// Look for IDAT chunks and merge buffers if necessary
+    pub fn get_idat_chunks(mut self, skip_plte: bool) -> Result<Cow<'a, [u8]>, DecodeError> {
+        let mut data = Option::<Cow<'a, [u8]>>::None;
+        if !skip_plte {
+            loop {
+                let chunk = self.peek_chunk()?;
+                match chunk.chunk_type() {
+                    FourCC::IDAT => break,
+                    FourCC::PLTE => {}
+                    _ => {
+                        if chunk.chunk_type().is_critical() {
+                            return Err(DecodeError::UnsupportedFormat);
+                        }
+                    }
+                }
+                self.next_chunk()?;
+            }
+        }
+        loop {
+            let chunk = self.next_chunk()?;
+            if chunk.is_iend() {
+                break;
+            }
+            if chunk.chunk_type() != FourCC::IDAT {
+                if chunk.chunk_type().is_critical() {
+                    return Err(DecodeError::UnsupportedFormat);
+                }
+                continue;
+            }
+            if let Some(v) = data.as_mut() {
+                match v {
+                    Cow::Borrowed(v) => {
+                        let mut v = v.to_vec();
+                        v.extend_from_slice(chunk.data());
+                        data = Some(v.into());
+                    }
+                    Cow::Owned(v) => {
+                        v.extend_from_slice(chunk.data());
+                    }
+                }
+            } else {
+                data = Some(Cow::Borrowed(chunk.data()));
+            }
+        }
+
+        data.ok_or(DecodeError::InvalidData)
     }
 }
 
 pub struct PngChunk<'a> {
-    length: usize,
+    len: usize,
     chunk_type: FourCC,
     data: &'a [u8],
     crc: u32,
@@ -572,7 +573,7 @@ pub struct PngChunk<'a> {
 impl PngChunk<'_> {
     #[inline]
     pub fn len(&self) -> usize {
-        self.length
+        self.len
     }
 
     #[inline]
@@ -616,7 +617,7 @@ impl Be32 {
 
 #[repr(transparent)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct FourCC([u8; 4]);
+pub struct FourCC(pub [u8; 4]);
 
 #[allow(non_upper_case_globals)]
 impl FourCC {
