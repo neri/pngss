@@ -1,4 +1,4 @@
-//! sample PNG image viewer
+//! Example application to display PNG files using `embedded-graphics`
 
 use embedded_graphics::{image::Image, image::ImageRaw, pixelcolor::Rgb888, prelude::*};
 use embedded_graphics_simulator::{OutputSettingsBuilder, SimulatorDisplay, Window};
@@ -14,7 +14,7 @@ fn main() {
     file.read_to_end(&mut data).expect("file cannot read");
 
     let decoder = pngss::PngDecoder::new(&data).expect("unexpected file format");
-    let image_info = decoder.info().clone();
+    let image_info = decoder.info();
     println!("{:?}", image_info);
     let decoded = decoder.decode().expect("decode failed");
     let image_data = decoded.to_rgb_bytes();

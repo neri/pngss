@@ -105,7 +105,6 @@ impl ImageType {
                 // Convert to RGBA
                 let mut output = Vec::with_capacity(input.len() / self.n_channels() * 4);
                 for rgba in self.iter(input, palette) {
-                    let rgba = rgba.components();
                     output.push(rgba.r());
                     output.push(rgba.g());
                     output.push(rgba.b());
@@ -126,7 +125,6 @@ impl ImageType {
                 // Convert to RGB
                 let mut output = Vec::with_capacity(input.len() / self.n_channels() * 3);
                 for rgba in self.iter(input, palette) {
-                    let rgba = rgba.components();
                     output.push(rgba.r());
                     output.push(rgba.g());
                     output.push(rgba.b());
@@ -143,6 +141,9 @@ impl ImageData {
         &self.info
     }
 
+    /// For index color format images, the palette is returned.
+    ///
+    /// The `raw_data` value represents the index of the palette array, regardless of bit depth.
     #[inline]
     pub fn palette(&self) -> Option<&[RGB888]> {
         if self.info.image_type == ImageType::Indexed {
@@ -152,11 +153,17 @@ impl ImageData {
         }
     }
 
+    /// Return image data in raw format.
+    ///
+    /// If the format is different from your expectations, data conversion is required.
     #[inline]
     pub fn raw_data(&self) -> &[u8] {
         &self.data
     }
 
+    /// Return image data in RGBA format.
+    ///
+    /// If another format is used, it will be converted.
     #[inline]
     pub fn to_rgba_bytes<'a>(&'a self) -> RgbaBytes<'a> {
         self.info
@@ -164,6 +171,9 @@ impl ImageData {
             .to_rgba_bytes(self.data.as_slice(), &self.palette)
     }
 
+    /// Return image data in RGB format.
+    ///
+    /// If another format is used, it will be converted.
     #[inline]
     pub fn to_rgb_bytes<'a>(&'a self) -> RgbBytes<'a> {
         self.info

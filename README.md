@@ -5,6 +5,7 @@
 * Pure Rust Implementation
 * Support for `no_std`
 * It generally provides sufficient functionality for most applications, but some features are not supported.
+* The detailed specifications are subject to change as it is still under development.
 
 ### MSRV
 
@@ -23,6 +24,16 @@
 |Interlace|-|
 |Color space|-|
 |CRC check|-|
+
+## Example Apps
+
+### /viewer: Image Viewer
+
+* Example application to display PNG files using `embedded-graphics`
+
+```sh
+$ cargo run -p viewer FILE_NAME
+```
 
 ## References
 

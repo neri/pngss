@@ -1,5 +1,11 @@
 //! A subset implementation of the PNG decoder
 //!
+//! ## Features
+//!
+//! * Pure Rust Implementation
+//! * Support for `no_std`
+//! * It generally provides sufficient functionality for most applications, but some features are not supported.
+//!
 //! See also: <https://www.w3.org/TR/png/>
 
 #![cfg_attr(not(test), no_std)]
@@ -9,6 +15,7 @@ use alloc::borrow::Cow;
 use alloc::vec::Vec;
 use color::RGB888;
 use compress::deflate::Deflate;
+use core::ops::{Deref, DerefMut};
 use core::slice;
 
 pub mod color;
@@ -30,6 +37,9 @@ pub enum DecodeError {
 }
 
 impl<'a> PngDecoder<'a> {
+    /// Generates a PNG decoder from the specified slice.
+    ///
+    /// Returns an error if the signature is invalid, if the IHDR chunk is invalid, or if an unsupported feature is required.
     pub fn new(input: &'a [u8]) -> Result<PngDecoder<'a>, DecodeError> {
         let Some((signature, next)) = input.split_at_checked(8) else {
             return Err(DecodeError::InvalidData);
@@ -41,7 +51,7 @@ impl<'a> PngDecoder<'a> {
         let Some((ihdr, next)) = next.split_at_checked(25) else {
             return Err(DecodeError::InvalidData);
         };
-        let mut ihdr = Chunks { iter: ihdr.iter() };
+        let mut ihdr = ChunksInner { iter: ihdr.iter() };
         let ihdr = ihdr.next_chunk()?;
         if ihdr.chunk_type() != FourCC::IHDR {
             return Err(DecodeError::InvalidData);
@@ -92,10 +102,26 @@ impl<'a> PngDecoder<'a> {
     }
 
     #[inline]
-    pub fn chunks(&self) -> Chunks<'a> {
-        Chunks {
+    pub fn chunks_unchecked(&self) -> ChunksInner<'a> {
+        ChunksInner {
             iter: self.slice.iter(),
         }
+    }
+
+    /// Returns an iterator over the chunks in the PNG file.
+    #[inline]
+    pub fn chunks(&self) -> Result<Chunks<'a>, DecodeError> {
+        let mut test = self.chunks_unchecked();
+        loop {
+            let chunk = test.next_chunk()?;
+            if chunk.is_iend() {
+                break;
+            }
+        }
+
+        Ok(Chunks {
+            inner: self.chunks_unchecked(),
+        })
     }
 
     #[inline]
@@ -103,8 +129,9 @@ impl<'a> PngDecoder<'a> {
         &self.info
     }
 
+    /// Decodes PNG images and returns image data.
     pub fn decode(&self) -> Result<ImageData, DecodeError> {
-        let mut chunks = self.chunks();
+        let mut chunks = self.chunks()?;
         let mut palette = Option::<Vec<RGB888>>::None;
 
         // Read chunks before IDAT
@@ -487,11 +514,11 @@ impl<'a> PngDecoder<'a> {
     }
 }
 
-pub struct Chunks<'a> {
+pub struct ChunksInner<'a> {
     iter: slice::Iter<'a, u8>,
 }
 
-impl<'a> Chunks<'a> {
+impl<'a> ChunksInner<'a> {
     pub fn next_chunk(&mut self) -> Result<PngChunk<'a>, DecodeError> {
         let chunk = self.peek_chunk()?;
         self.iter.nth(chunk.len() + 11);
@@ -519,7 +546,6 @@ impl<'a> Chunks<'a> {
         let crc = Be32(next[..4].try_into().unwrap()).as_u32();
 
         Ok(PngChunk {
-            len: length,
             chunk_type,
             data,
             crc,
@@ -527,7 +553,7 @@ impl<'a> Chunks<'a> {
     }
 
     /// Look for IDAT chunks and merge buffers if necessary
-    pub fn get_idat_chunks(mut self, skip_plte: bool) -> Result<Cow<'a, [u8]>, DecodeError> {
+    pub fn get_idat_chunks(&mut self, skip_plte: bool) -> Result<Cow<'a, [u8]>, DecodeError> {
         let mut data = Option::<Cow<'a, [u8]>>::None;
         if !skip_plte {
             loop {
@@ -575,36 +601,63 @@ impl<'a> Chunks<'a> {
     }
 }
 
+pub struct Chunks<'a> {
+    inner: ChunksInner<'a>,
+}
+
+impl<'a> Deref for Chunks<'a> {
+    type Target = ChunksInner<'a>;
+
+    #[inline]
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
+}
+
+impl<'a> DerefMut for Chunks<'a> {
+    #[inline]
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.inner
+    }
+}
+
+impl<'a> Iterator for ChunksInner<'a> {
+    type Item = PngChunk<'a>;
+
+    #[inline]
+    fn next(&mut self) -> Option<Self::Item> {
+        let chunk = self.next_chunk().unwrap();
+        (!chunk.is_iend()).then(|| chunk)
+    }
+}
+
 pub struct PngChunk<'a> {
-    len: usize,
     chunk_type: FourCC,
     data: &'a [u8],
     crc: u32,
 }
 
-impl PngChunk<'_> {
+impl<'a> PngChunk<'a> {
     #[inline]
-    pub fn len(&self) -> usize {
-        self.len
+    pub const fn len(&self) -> usize {
+        self.data.len()
     }
 
     #[inline]
-    pub fn chunk_type(&self) -> FourCC {
+    pub const fn chunk_type(&self) -> FourCC {
         self.chunk_type
     }
 
     #[inline]
-    pub fn crc(&self) -> u32 {
+    pub const fn crc(&self) -> u32 {
         self.crc
     }
 
     #[inline]
-    pub fn is_iend(&self) -> bool {
-        self.chunk_type == FourCC::IEND
+    pub const fn is_iend(&self) -> bool {
+        matches!(self.chunk_type, FourCC::IEND)
     }
-}
 
-impl<'a> PngChunk<'a> {
     #[inline]
     pub fn data(&self) -> &'a [u8] {
         self.data

@@ -3,12 +3,31 @@ name = "pngss"
 version = "0.1.0"
 edition = "2024"
 
+# description = "A subset implementation of the PNG decoder"
+# readme = "README.md"
+# documentation = "https://neri.github.io/pngss/pngss/"
+# homepage = "https://github.com/neri/pngss"
+# repository = "https://github.com/neri/pngss"
+# license = "MIT"
+# categories = ["no-std"]
+# keywords = ["graphics", "image"]
+# exclude = [
+#     "/.github/",
+#     ".gitignore",
+#     "/temp/",
+#     "/samples/",
+# ]
+
 [dependencies]
 compress.workspace = true
 
 [workspace.dependencies]
 # compress = { path = "../compress" }
 compress = { git = "https://github.com/neri/compress.git" }
+
+# [profile.release]
+# panic = "abort"
+# debug = true
 
 [workspace]
 members = [
