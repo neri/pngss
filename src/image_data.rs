@@ -1,7 +1,7 @@
 use crate::*;
 use alloc::boxed::Box;
 use alloc::vec::Vec;
-use core::ops::{Deref, DerefMut};
+use core::ops::Deref;
 
 pub struct ImageData {
     pub(crate) info: ImageInfo,
@@ -19,14 +19,26 @@ pub struct ImageInfo {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ImageType {
+    /// `[y, ...]`
     Grayscale,
+    /// `[y, a, ...]`
     GrayscaleAlpha,
+    /// `[r, g, b, ...]`
     RGB,
+    /// `[r, g, b, a, ...]`
     RGBA,
+    /// `[index, ...]`
     Indexed,
 }
 
 impl ImageType {
+    /// Returns the number of channels for this image type.
+    ///
+    /// - Grayscale: 1
+    /// - GrayscaleAlpha: 2
+    /// - RGB: 3
+    /// - RGBA: 4
+    /// - Indexed: 1
     #[inline]
     pub fn n_channels(&self) -> usize {
         match self {
@@ -38,16 +50,19 @@ impl ImageType {
         }
     }
 
+    /// Returns true if GrayscaleAlpha or RGBA
     #[inline]
     pub fn has_alpha(&self) -> bool {
         matches!(self, Self::GrayscaleAlpha | Self::RGBA)
     }
 
+    /// Returns true if Grayscale or GrayscaleAlpha
     #[inline]
     pub fn is_gray_scale(&self) -> bool {
         matches!(self, Self::Grayscale | Self::GrayscaleAlpha)
     }
 
+    /// Returns true if other than Grayscale or GrayscaleAlpha
     #[inline]
     pub fn is_color(&self) -> bool {
         !self.is_gray_scale()
@@ -143,7 +158,7 @@ impl ImageData {
 
     /// For index color format images, the palette is returned.
     ///
-    /// The `raw_data` value represents the index of the palette array, regardless of bit depth.
+    /// The `raw_data` value will be a byte array representing the index of the palette array, regardless of bit depth.
     #[inline]
     pub fn palette(&self) -> Option<&[RGB888]> {
         if self.info.image_type == ImageType::Indexed {
@@ -159,6 +174,14 @@ impl ImageData {
     #[inline]
     pub fn raw_data(&self) -> &[u8] {
         &self.data
+    }
+
+    /// Returns an iterator that converts all pixels to RGBA.
+    #[inline]
+    pub fn all_pixels<'a>(&'a self) -> Box<dyn Iterator<Item = color::RGBA8888> + 'a> {
+        self.info
+            .image_type
+            .iter(self.data.as_slice(), &self.palette)
     }
 
     /// Return image data in RGBA format.
@@ -182,7 +205,15 @@ impl ImageData {
     }
 }
 
+/// A byte array stored in the order R,G,B,A. It can be `Deref` by `&[u8]`
 pub struct RgbaBytes<'a>(Cow<'a, [u8]>);
+
+impl<'a> RgbaBytes<'a> {
+    #[inline]
+    pub fn into_inner(self) -> Cow<'a, [u8]> {
+        self.0
+    }
+}
 
 impl Deref for RgbaBytes<'_> {
     type Target = [u8];
@@ -193,14 +224,15 @@ impl Deref for RgbaBytes<'_> {
     }
 }
 
-impl DerefMut for RgbaBytes<'_> {
+/// A byte array stored in the order R,G,B. It can be `Deref` by `&[u8]`
+pub struct RgbBytes<'a>(Cow<'a, [u8]>);
+
+impl<'a> RgbBytes<'a> {
     #[inline]
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        self.0.to_mut()
+    pub fn into_inner(self) -> Cow<'a, [u8]> {
+        self.0
     }
 }
-
-pub struct RgbBytes<'a>(Cow<'a, [u8]>);
 
 impl Deref for RgbBytes<'_> {
     type Target = [u8];
@@ -208,13 +240,6 @@ impl Deref for RgbBytes<'_> {
     #[inline]
     fn deref(&self) -> &Self::Target {
         self.0.as_ref()
-    }
-}
-
-impl DerefMut for RgbBytes<'_> {
-    #[inline]
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        self.0.to_mut()
     }
 }
 

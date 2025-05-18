@@ -27,7 +27,7 @@ fn main() {
             let time0 = std::time::Instant::now();
             for _ in 0..times {
                 let decoder = pngss::PngDecoder::new(&data).unwrap();
-                let data = decoder.chunks_unchecked().get_idat_chunks(false).unwrap();
+                let data = decoder.chunks().unwrap().get_idat_chunks(false).unwrap();
                 compress::deflate::Deflate::inflate(&data, usize::MAX).unwrap();
                 drop(decoder);
             }

@@ -16,9 +16,6 @@ fn main() {
     let decoder = pngss::PngDecoder::new(&data).expect("unexpected file format");
     let image_info = decoder.info();
     println!("{:?}", image_info);
-    let decoded = decoder.decode().expect("decode failed");
-    let image_data = decoded.to_rgb_bytes();
-    let raw = ImageRaw::<Rgb888>::new(&image_data, image_info.width);
 
     let window_size = Size::new(
         128.max(image_info.width + 16),
@@ -28,7 +25,12 @@ fn main() {
         (window_size.width - image_info.width) as i32 / 2,
         (window_size.height - image_info.height) as i32 / 2,
     );
+
+    let decoded = decoder.decode().expect("decode failed");
+    let image_data = decoded.to_rgb_bytes();
+    let raw = ImageRaw::<Rgb888>::new(&image_data, image_info.width);
     let image = Image::new(&raw, padding);
+
     let mut display = SimulatorDisplay::<Rgb888>::new(window_size);
     image.draw(&mut display).unwrap();
 
