@@ -1,6 +1,12 @@
 //! bench
 
-use std::{env, fs::File, io::Read, time::Duration};
+use image::ImageDecoder;
+use std::{
+    env,
+    fs::File,
+    io::{Cursor, Read},
+    time::Duration,
+};
 
 fn main() {
     let mut args = env::args();
@@ -20,15 +26,18 @@ fn main() {
     let mut vec_inflate = Vec::new();
     let mut vec_pngss = Vec::new();
     let mut vec_png = Vec::new();
+    let mut vec_image = Vec::new();
     for _ in 0..5 {
         let threshold = Duration::from_millis(500);
         let mut times = 10;
         loop {
             let time0 = std::time::Instant::now();
-            for _ in 0..times {
+            {
                 let decoder = pngss::PngDecoder::new(&data).unwrap();
                 let data = decoder.chunks().unwrap().get_idat_chunks(false).unwrap();
-                compress::deflate::Deflate::inflate(&data, usize::MAX).unwrap();
+                for _ in 0..times {
+                    compress::deflate::Deflate::inflate(&data, usize::MAX).unwrap();
+                }
                 drop(decoder);
             }
             let time_inflate1 = time0.elapsed();
@@ -52,18 +61,32 @@ fn main() {
             }
             let time_png1 = time0.elapsed();
 
-            if time_pngss1 >= threshold || time_png1 >= threshold {
+            let time0 = std::time::Instant::now();
+            for _ in 0..times {
+                let decoder =
+                    image::codecs::png::PngDecoder::new(Cursor::new(data.as_slice())).unwrap();
+                let size = decoder.total_bytes() as usize;
+                let mut buf = Vec::with_capacity(size);
+                buf.resize(size, 0);
+                decoder.read_image(&mut buf).unwrap();
+            }
+            let time_image1 = time0.elapsed();
+
+            if time_pngss1 >= threshold || time_png1 >= threshold || time_image1 >= threshold {
                 vec_inflate.push(time_inflate1.as_secs_f64() / times as f64);
                 vec_pngss.push(time_pngss1.as_secs_f64() / times as f64);
                 vec_png.push(time_png1.as_secs_f64() / times as f64);
+                vec_image.push(time_image1.as_secs_f64() / times as f64);
                 scale = scale.max(times);
                 println!(
-                    "times {}, inflate: {:.03}s, pngss: {:.03}s, png: {:.03}s, {:.03}%",
+                    "times {}, inflate: {:.03}s, pngss: {:.03}s, png: {:.03}s {:.03}%, image: {:.03}s {:.03}%",
                     times,
                     time_inflate1.as_secs_f64(),
                     time_pngss1.as_secs_f64(),
                     time_png1.as_secs_f64(),
                     time_pngss1.as_secs_f64() / time_png1.as_secs_f64() * 100.0,
+                    time_image1.as_secs_f64(),
+                    time_pngss1.as_secs_f64() / time_image1.as_secs_f64() * 100.0,
                 );
                 break;
             } else {
@@ -75,14 +98,17 @@ fn main() {
     let avg_inflate = average(&vec_inflate) * scale as f64;
     let avg_pngss = average(&vec_pngss) * scale as f64;
     let avg_png = average(&vec_png) * scale as f64;
+    let avg_image = average(&vec_image) * scale as f64;
 
     println!(
-        "# average: {}, inflate: {:.03}s, pngss: {:.03}s, png: {:.03}s, {:.03}%",
+        "# average: {}, inflate: {:.03}s, pngss: {:.03}s, png: {:.03}s {:.03}%, image: {:.03}s {:.03}%",
         scale,
         avg_inflate,
         avg_pngss,
         avg_png,
         avg_pngss / avg_png * 100.0,
+        avg_image,
+        avg_pngss / avg_image * 100.0,
     );
 }
 

@@ -23,11 +23,11 @@ compress.workspace = true
 
 [workspace.dependencies]
 # compress = { path = "../compress" }
-compress = { git = "https://github.com/neri/compress.git" }
+compress = { git = "https://github.com/neri/compress.git", rev = "9b252d1794599ba380922e9d37152fc82eed73c3" }
 
 # [profile.release]
-# panic = "abort"
 # debug = true
+# panic = "abort"
 
 [workspace]
 members = [
