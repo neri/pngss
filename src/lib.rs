@@ -135,6 +135,17 @@ impl<'a> PngDecoder<'a> {
         &self.info
     }
 
+    #[inline]
+    pub fn decoded_buffer_size(&self) -> usize {
+        (1 + self.info.width as usize * self.info.image_type.n_channels() as usize)
+            * self.info.height as usize
+    }
+
+    #[inline(always)]
+    pub fn inflate(input: &[u8], size: usize) -> Result<Vec<u8>, DecodeError> {
+        Deflate::inflate(input, size).map_err(|_| DecodeError::InvalidData)
+    }
+
     /// Decodes PNG images and returns image data.
     pub fn decode(&self) -> Result<ImageData, DecodeError> {
         let mut chunks = self.chunks()?;
@@ -170,12 +181,7 @@ impl<'a> PngDecoder<'a> {
         let data = chunks.get_idat_chunks(true)?;
 
         // Decompress the IDAT data
-        let inflated = Deflate::inflate(
-            &data,
-            (1 + self.info.width as usize * self.info.image_type.n_channels() as usize)
-                * self.info.height as usize,
-        )
-        .map_err(|_| DecodeError::InvalidData)?;
+        let inflated = Self::inflate(&data, self.decoded_buffer_size())?;
 
         // process filters
         let stride = if self.info.bit_depth > BitDepth::Bpp8 {

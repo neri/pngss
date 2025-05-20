@@ -95,17 +95,17 @@ impl ImageType {
             Self::RGB => Box::new(
                 slice
                     .chunks_exact(3)
-                    .map(|chunk| RGBA8888::from_rgb(chunk[0], chunk[1], chunk[2])),
+                    .map(|rgb| RGB888::new(rgb[0], rgb[1], rgb[2]).into()),
             ),
             Self::RGBA => Box::new(
                 slice
                     .chunks_exact(4)
-                    .map(|chunk| RGBA8888::from_rgba(chunk[0], chunk[1], chunk[2], chunk[3])),
+                    .map(|rgba| RGBA8888::new(rgba[0], rgba[1], rgba[2], rgba[3])),
             ),
             Self::Indexed => Box::new(
                 slice
                     .iter()
-                    .map(|index| palette[*index as usize].into_rgba()),
+                    .map(|&index| palette[index as usize].into_rgba()),
             ),
         }
     }

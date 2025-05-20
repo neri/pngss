@@ -10,4 +10,3 @@ pngss = { path = "../" }
 compress.workspace = true
 
 png = { version = "0.17" }
-image = { version = "0.25" }

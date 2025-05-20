@@ -1,134 +1,36 @@
-use core::mem::transmute;
-
+#[repr(C, align(4))]
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub struct RGBA8888(u32);
+pub struct RGBA8888 {
+    pub r: u8,
+    pub g: u8,
+    pub b: u8,
+    pub a: u8,
+}
 
 impl RGBA8888 {
-    /// # SAFETY
-    ///
-    /// Byte order is dependent on the target architecture.
     #[inline]
-    pub const unsafe fn from_inner(value: u32) -> Self {
-        Self(value)
-    }
-
-    /// # SAFETY
-    ///
-    /// Byte order is dependent on the target architecture.
-    #[inline]
-    pub const unsafe fn into_inner(self) -> u32 {
-        self.0
+    pub const fn new(r: u8, g: u8, b: u8, a: u8) -> Self {
+        Self { r, g, b, a }
     }
 
     #[inline]
-    pub const fn components(&self) -> RGBAComponents8888 {
-        RGBAComponents8888::from_rgba(*self)
-    }
-
-    #[inline]
-    pub const fn r(&self) -> u8 {
-        self.components().r()
-    }
-
-    #[inline]
-    pub const fn g(&self) -> u8 {
-        self.components().g()
-    }
-
-    #[inline]
-    pub const fn b(&self) -> u8 {
-        self.components().b()
-    }
-
-    #[inline]
-    pub const fn a(&self) -> u8 {
-        self.components().a()
-    }
-
-    #[inline]
-    pub const fn is_gray(&self) -> bool {
-        let components = self.components();
-        components.r() == components.g() && components.g() == components.b()
-    }
-
-    #[inline]
-    pub const fn from_gray(gray: u8) -> Self {
-        Self((gray as u32) * 0x00010101 | 0xFF000000)
-    }
-
-    #[inline]
-    pub const fn from_gray_alpha(w: u8, a: u8) -> Self {
-        Self((w as u32) * 0x00010101 | ((a as u32) << 24))
-    }
-
-    #[inline]
-    pub const fn from_rgb(r: u8, g: u8, b: u8) -> Self {
-        RGBAComponents8888::new(r, g, b, 0xFF).into_rgba()
-    }
-
-    #[inline]
-    pub const fn from_rgba(r: u8, g: u8, b: u8, a: u8) -> Self {
-        RGBAComponents8888::new(r, g, b, a).into_rgba()
-    }
-
-    #[inline]
-    pub const fn to_rgb(&self) -> RGB888 {
-        let components = self.components();
-        RGB888 {
-            r: components.r(),
-            g: components.g(),
-            b: components.b(),
+    pub const fn from_gray(y: u8) -> Self {
+        Self {
+            r: y,
+            g: y,
+            b: y,
+            a: 0xff,
         }
     }
 
     #[inline]
-    pub const fn wrapping_add(&self, other: Self) -> Self {
-        RGBAComponents8888::into_rgba(self.components().wrapping_add(other.components()))
-    }
-
-    #[inline]
-    pub const fn wrapping_sub(&self, other: Self) -> Self {
-        RGBAComponents8888::into_rgba(self.components().wrapping_sub(other.components()))
-    }
-
-    #[inline]
-    pub const fn saturating_add(&self, other: Self) -> Self {
-        RGBAComponents8888::into_rgba(self.components().saturating_add(other.components()))
-    }
-
-    #[inline]
-    pub const fn saturating_sub(&self, other: Self) -> Self {
-        RGBAComponents8888::into_rgba(self.components().saturating_sub(other.components()))
-    }
-}
-
-impl PartialOrd for RGBA8888 {
-    #[inline]
-    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
-        self.components().partial_cmp(&other.components())
-    }
-}
-
-impl Ord for RGBA8888 {
-    #[inline]
-    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
-        self.components().cmp(&other.components())
-    }
-}
-
-#[cfg(target_endian = "little")]
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub struct RGBAComponents8888 {
-    r: u8,
-    g: u8,
-    b: u8,
-    a: u8,
-}
-
-impl RGBAComponents8888 {
-    #[inline]
-    pub const fn new(r: u8, g: u8, b: u8, a: u8) -> Self {
-        Self { r, g, b, a }
+    pub const fn from_gray_alpha(y: u8, a: u8) -> Self {
+        Self {
+            r: y,
+            g: y,
+            b: y,
+            a: a,
+        }
     }
 
     #[inline]
@@ -164,36 +66,6 @@ impl RGBAComponents8888 {
             b: arr[2],
             a: arr[3],
         }
-    }
-
-    #[inline]
-    pub const fn from_rgba(value: RGBA8888) -> Self {
-        unsafe { transmute(value) }
-    }
-
-    #[inline]
-    pub const fn into_rgba(self) -> RGBA8888 {
-        unsafe { transmute(self) }
-    }
-
-    /// Converts color components to a byte array
-    ///
-    /// # SAFETY
-    ///
-    /// Mutual conversion is possible with `transmute`, but the order of values is undefined.
-    #[inline]
-    pub unsafe fn into_inner(self) -> [u8; 4] {
-        unsafe { transmute(self) }
-    }
-
-    /// Converts color components from a byte array
-    ///
-    /// # SAFETY
-    ///
-    /// Mutual conversion is possible with `transmute`, but the order of values is undefined.
-    #[inline]
-    pub unsafe fn from_inner(bytes: [u8; 4]) -> Self {
-        unsafe { transmute(bytes) }
     }
 
     #[inline]
@@ -252,21 +124,21 @@ impl RGBAComponents8888 {
     }
 }
 
-impl PartialOrd for RGBAComponents8888 {
+impl PartialOrd for RGBA8888 {
     #[inline]
     fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
         self._ordinal().partial_cmp(&other._ordinal())
     }
 }
 
-impl Ord for RGBAComponents8888 {
+impl Ord for RGBA8888 {
     #[inline]
     fn cmp(&self, other: &Self) -> core::cmp::Ordering {
         self._ordinal().cmp(&other._ordinal())
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct RGB888 {
     pub r: u8,
     pub g: u8,
@@ -281,30 +153,53 @@ impl RGB888 {
 
     #[inline]
     pub const fn from_rgba(rgba: RGBA8888) -> Self {
-        let components = RGBAComponents8888::from_rgba(rgba);
         Self {
-            r: components.r(),
-            g: components.g(),
-            b: components.b(),
+            r: rgba.r(),
+            g: rgba.g(),
+            b: rgba.b(),
         }
     }
 
     #[inline]
     pub const fn into_rgba(self) -> RGBA8888 {
-        RGBAComponents8888::new(self.r, self.g, self.b, 0xFF).into_rgba()
+        RGBA8888::new(self.r, self.g, self.b, 0xFF)
     }
 
     #[inline]
-    pub const fn value(&self) -> u32 {
-        ((self.r as u32) << 16) | ((self.g as u32) << 8) | (self.b as u32)
+    const fn _ordinal(&self) -> u32 {
+        ((self.b as u32) << 16) | ((self.g as u32) << 8) | (self.r as u32)
     }
 
     #[inline]
-    pub const fn from_gray(gray: u8) -> Self {
-        Self {
-            r: gray,
-            g: gray,
-            b: gray,
-        }
+    pub const fn from_gray(y: u8) -> Self {
+        Self { r: y, g: y, b: y }
+    }
+}
+
+impl PartialOrd for RGB888 {
+    #[inline]
+    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
+        self._ordinal().partial_cmp(&other._ordinal())
+    }
+}
+
+impl Ord for RGB888 {
+    #[inline]
+    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
+        self._ordinal().cmp(&other._ordinal())
+    }
+}
+
+impl From<RGBA8888> for RGB888 {
+    #[inline]
+    fn from(rgba: RGBA8888) -> Self {
+        Self::from_rgba(rgba)
+    }
+}
+
+impl From<RGB888> for RGBA8888 {
+    #[inline]
+    fn from(rgb: RGB888) -> Self {
+        Self::new(rgb.r, rgb.g, rgb.b, 0xff)
     }
 }
