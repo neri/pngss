@@ -3,10 +3,16 @@ use alloc::boxed::Box;
 use alloc::vec::Vec;
 use core::ops::Deref;
 
-pub struct ImageData {
+pub struct ImageDataOwned {
     pub(crate) info: ImageInfo,
     pub(crate) palette: Vec<RGB888>,
     pub(crate) data: Vec<u8>,
+}
+
+pub struct ImageData<'a> {
+    pub(crate) info: ImageInfo,
+    pub(crate) palette: &'a [RGB888],
+    pub(crate) data: &'a [u8],
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -47,6 +53,17 @@ impl ImageType {
             ImageType::RGB => 3,
             ImageType::RGBA => 4,
             ImageType::Indexed => 1,
+        }
+    }
+
+    #[inline]
+    pub fn to_png_color_type(&self) -> u8 {
+        match self {
+            Self::Grayscale => 0,
+            Self::GrayscaleAlpha => 4,
+            Self::RGB => 2,
+            Self::RGBA => 6,
+            Self::Indexed => 3,
         }
     }
 
@@ -150,7 +167,16 @@ impl ImageType {
     }
 }
 
-impl ImageData {
+impl ImageDataOwned {
+    #[inline]
+    pub fn as_ref<'a>(&'a self) -> ImageData<'a> {
+        ImageData {
+            info: self.info.clone(),
+            palette: &self.palette,
+            data: &self.data,
+        }
+    }
+
     #[inline]
     pub fn info(&self) -> &ImageInfo {
         &self.info
@@ -160,9 +186,9 @@ impl ImageData {
     ///
     /// The `raw_data` value will be a byte array representing the index of the palette array, regardless of bit depth.
     #[inline]
-    pub fn palette(&self) -> Option<&[RGB888]> {
+    pub fn palette<'a>(&'a self) -> Option<&'a [RGB888]> {
         if self.info.image_type == ImageType::Indexed {
-            Some(&self.palette)
+            Some(self.palette.as_ref())
         } else {
             None
         }
@@ -178,30 +204,100 @@ impl ImageData {
 
     /// Returns an iterator that converts all pixels to RGBA.
     #[inline]
-    pub fn all_pixels<'a>(&'a self) -> Box<dyn Iterator<Item = color::RGBA8888> + 'a> {
+    pub fn all_pixels<'b>(&'b self) -> Box<dyn Iterator<Item = color::RGBA8888> + 'b> {
         self.info
             .image_type
-            .iter(self.data.as_slice(), &self.palette)
+            .iter(self.data.as_slice(), self.palette.as_ref())
     }
 
     /// Return image data in RGBA format.
     ///
     /// If another format is used, it will be converted.
     #[inline]
-    pub fn to_rgba_bytes<'a>(&'a self) -> RgbaBytes<'a> {
+    pub fn to_rgba_bytes<'b>(&'b self) -> RgbaBytes<'b> {
         self.info
             .image_type
-            .to_rgba_bytes(self.data.as_slice(), &self.palette)
+            .to_rgba_bytes(self.data.as_slice(), self.palette.as_ref())
     }
 
     /// Return image data in RGB format.
     ///
     /// If another format is used, it will be converted.
     #[inline]
-    pub fn to_rgb_bytes<'a>(&'a self) -> RgbBytes<'a> {
+    pub fn to_rgb_bytes<'b>(&'b self) -> RgbBytes<'b> {
         self.info
             .image_type
-            .to_rgb_bytes(self.data.as_slice(), &self.palette)
+            .to_rgb_bytes(self.data.as_slice(), self.palette.as_ref())
+    }
+}
+
+impl<'a> ImageData<'a> {
+    #[inline]
+    pub fn new(
+        width: u32,
+        height: u32,
+        image_type: ImageType,
+        palette: &'a [RGB888],
+        data: &'a [u8],
+    ) -> Self {
+        let info = ImageInfo {
+            width,
+            height,
+            bit_depth: BitDepth::Eight,
+            image_type,
+        };
+        Self {
+            info,
+            palette,
+            data,
+        }
+    }
+
+    #[inline]
+    pub fn info(&self) -> &ImageInfo {
+        &self.info
+    }
+
+    /// For index color format images, the palette is returned.
+    ///
+    /// The `raw_data` value will be a byte array representing the index of the palette array, regardless of bit depth.
+    #[inline]
+    pub fn palette(&self) -> Option<&'a [RGB888]> {
+        if self.info.image_type == ImageType::Indexed {
+            Some(self.palette)
+        } else {
+            None
+        }
+    }
+
+    /// Return image data in raw format.
+    ///
+    /// If the format is different from your expectations, data conversion is required.
+    #[inline]
+    pub fn raw_data(&self) -> &[u8] {
+        &self.data
+    }
+
+    /// Returns an iterator that converts all pixels to RGBA.
+    #[inline]
+    pub fn all_pixels<'b>(&'b self) -> Box<dyn Iterator<Item = color::RGBA8888> + 'b> {
+        self.info.image_type.iter(self.data, self.palette)
+    }
+
+    /// Return image data in RGBA format.
+    ///
+    /// If another format is used, it will be converted.
+    #[inline]
+    pub fn to_rgba_bytes<'b>(&'b self) -> RgbaBytes<'b> {
+        self.info.image_type.to_rgba_bytes(self.data, self.palette)
+    }
+
+    /// Return image data in RGB format.
+    ///
+    /// If another format is used, it will be converted.
+    #[inline]
+    pub fn to_rgb_bytes<'b>(&'b self) -> RgbBytes<'b> {
+        self.info.image_type.to_rgb_bytes(self.data, self.palette)
     }
 }
 
@@ -245,19 +341,19 @@ impl Deref for RgbBytes<'_> {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum BitDepth {
-    Bpp1 = 1,
-    Bpp2 = 2,
-    Bpp4 = 4,
-    Bpp8 = 8,
+    One = 1,
+    Two = 2,
+    Four = 4,
+    Eight = 8,
 }
 
 impl BitDepth {
     pub fn new(val: u8) -> Option<Self> {
         match val {
-            1 => Some(Self::Bpp1),
-            2 => Some(Self::Bpp2),
-            4 => Some(Self::Bpp4),
-            8 => Some(Self::Bpp8),
+            1 => Some(Self::One),
+            2 => Some(Self::Two),
+            4 => Some(Self::Four),
+            8 => Some(Self::Eight),
             _ => None,
         }
     }
@@ -265,10 +361,10 @@ impl BitDepth {
     #[inline]
     pub fn bits_per_pixel(&self) -> u8 {
         match self {
-            Self::Bpp1 => 1,
-            Self::Bpp2 => 2,
-            Self::Bpp4 => 4,
-            Self::Bpp8 => 8,
+            Self::One => 1,
+            Self::Two => 2,
+            Self::Four => 4,
+            Self::Eight => 8,
         }
     }
 }

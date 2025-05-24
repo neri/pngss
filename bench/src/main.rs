@@ -21,7 +21,7 @@ fn main() {
     let mut vec_pngss = Vec::new();
     let mut vec_image = Vec::new();
     for _ in 0..5 {
-        let threshold = Duration::from_millis(500);
+        let threshold = Duration::from_millis(100);
         let mut times = 10;
         loop {
             let time0 = std::time::Instant::now();
@@ -29,7 +29,9 @@ fn main() {
                 let decoder = pngss::PngDecoder::new(&data).unwrap();
                 let data = decoder.chunks().unwrap().get_idat_chunks(false).unwrap();
                 for _ in 0..times {
-                    pngss::PngDecoder::inflate(&data, decoder.decoded_buffer_size()).unwrap();
+                    use pngss::DeflateDecoder;
+                    pngss::DefaultDeflateDecoder::inflate(&data, decoder.decoded_buffer_size())
+                        .unwrap();
                 }
                 drop(decoder);
             }

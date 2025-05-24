@@ -1,0 +1,66 @@
+use crate::*;
+
+#[track_caller]
+fn assert_eq_array(lhs: &[u8], rhs: &[u8]) {
+    for (i, (l, r)) in lhs.iter().zip(rhs.iter()).enumerate() {
+        if *l != *r {
+            panic!("Array is not identical at index {i}\n  left: {l:02x}\n right: {r:02x}");
+        }
+    }
+    assert_eq!(lhs.len(), rhs.len(), "Array lengths are not equal");
+}
+
+#[allow(unused)]
+fn hex_dump(data: &[u8]) {
+    let mut iter = data.iter();
+    for addr in (0..data.len()).step_by(16) {
+        print!("{:08x}: ", addr);
+        for _ in 0..16 {
+            if let Some(byte) = iter.next() {
+                print!("{:02x} ", byte);
+            } else {
+                print!("   ");
+            }
+        }
+        println!();
+    }
+}
+
+fn basic_image_test(input: &ImageData, expected: Option<&[u8]>) {
+    let encoded = PngEncoder::encode(input, CompressionLevel::Best).unwrap();
+
+    if let Some(expected) = expected {
+        assert_eq_array(&encoded, expected);
+    } else {
+        // hex_dump(&encoded);
+    }
+
+    let decoded = PngDecoder::new(&encoded).unwrap().decode().unwrap();
+
+    assert_eq!(decoded.info, input.info);
+    assert_eq_array(&decoded.data, &input.data);
+}
+
+#[test]
+fn test_b8x8() {
+    let data = &[0u8; 8 * 8 * 3];
+    let image = ImageData::new(8, 8, ImageType::RGB, &[], data);
+
+    let expected = &[
+        0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44,
+        0x52, 0x00, 0x00, 0x00, 0x08, 0x00, 0x00, 0x00, 0x08, 0x08, 0x02, 0x00, 0x00, 0x00, 0x4B,
+        0x6D, 0x29, 0xDC, 0x00, 0x00, 0x00, 0x0C, 0x49, 0x44, 0x41, 0x54, 0x08, 0xD7, 0x63, 0x60,
+        0x18, 0x1E, 0x00, 0x00, 0x00, 0xC8, 0x00, 0x01, 0x7C, 0x63, 0x69, 0x7D, 0x00, 0x00, 0x00,
+        0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82,
+    ];
+
+    basic_image_test(&image, Some(expected));
+}
+
+#[test]
+fn test_w8x8() {
+    let data = &[0xffu8; 8 * 8 * 3];
+    let image = ImageData::new(8, 8, ImageType::RGB, &[], data);
+
+    basic_image_test(&image, None);
+}

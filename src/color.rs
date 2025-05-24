@@ -174,6 +174,11 @@ impl RGB888 {
     pub const fn from_gray(y: u8) -> Self {
         Self { r: y, g: y, b: y }
     }
+
+    #[inline]
+    pub const fn is_gray(&self) -> bool {
+        self.r == self.g && self.g == self.b
+    }
 }
 
 impl PartialOrd for RGB888 {
