@@ -194,7 +194,7 @@ impl<DE: DeflateEncoder> CustomPngEncoder<DE> {
         let mut new_data = Vec::with_capacity((1 + stride) * height as usize);
         if level == CompressionLevel::Fast {
             for line in data.chunks_exact(stride) {
-                new_data.push(0); // Filter type 0
+                new_data.push(FilterType::None as u8);
                 new_data.extend_from_slice(line);
             }
             DE::deflate(&new_data, level)
