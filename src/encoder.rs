@@ -1,3 +1,5 @@
+//! A subset implementation of PNG encoder
+
 use super::*;
 use alloc::collections::BTreeMap;
 use compress::{deflate::OptionConfig, entropy::entropy_of_blocks};
@@ -99,7 +101,7 @@ impl<DE: DeflateEncoder> CustomPngEncoder<DE> {
         Self::generate_png(
             info.width,
             info.height,
-            &Self::process_idat(
+            &Self::generate_idat(
                 info.width as usize * info.image_type.n_channels() as usize,
                 info.height,
                 image.data,
@@ -177,14 +179,15 @@ impl<DE: DeflateEncoder> CustomPngEncoder<DE> {
         Self::generate_png(
             width,
             height,
-            &Self::process_idat(stride, height, &data, 1, level)?,
+            &Self::generate_idat(stride, height, &data, 1, level)?,
             Some(palette),
             bits,
             ImageType::Indexed,
         )
     }
 
-    fn process_idat(
+    /// Apply filters and compression to image data to generate the source of IDAT.
+    fn generate_idat(
         stride: usize,
         height: u32,
         data: &[u8],
@@ -201,19 +204,21 @@ impl<DE: DeflateEncoder> CustomPngEncoder<DE> {
         } else {
             let mut prev_line = None;
             for current_line in data.chunks_exact(stride) {
-                Self::process_line(&mut new_data, current_line, &prev_line, n_channels);
+                let (filter, new_line) = Self::process_line(current_line, &prev_line, n_channels);
+                new_data.push(filter as u8);
+                new_data.extend_from_slice(&new_line);
                 prev_line = Some(current_line);
             }
             DE::deflate(&new_data, level)
         }
     }
 
-    fn process_line(
-        output: &mut Vec<u8>,
-        current_line: &[u8],
+    /// Processes a single line of image data with various filters and selects the best one based on entropy.
+    fn process_line<'a>(
+        current_line: &'a [u8],
         prev_line: &Option<&[u8]>,
         n_channels: usize,
-    ) {
+    ) -> (FilterType, Cow<'a, [u8]>) {
         // Filter None
         // Filt(x) = Orig(x)
         let mut selected_line = (
@@ -306,8 +311,7 @@ impl<DE: DeflateEncoder> CustomPngEncoder<DE> {
             }
         }
 
-        output.push(selected_line.1 as u8);
-        output.extend_from_slice(&selected_line.2);
+        (selected_line.1, selected_line.2)
     }
 
     fn generate_png(
@@ -322,15 +326,14 @@ impl<DE: DeflateEncoder> CustomPngEncoder<DE> {
         output.extend_from_slice(PNG_SIGNATURE);
 
         let mut ihdr = [0; IHDR_SIZE];
-        ihdr[0..4].copy_from_slice(&Be32::from_u32(width).0);
-        ihdr[4..8].copy_from_slice(&Be32::from_u32(height).0);
+        ihdr[0..4].copy_from_slice(&width.to_be_bytes());
+        ihdr[4..8].copy_from_slice(&height.to_be_bytes());
         ihdr[8] = bit_depth as u8;
         ihdr[9] = color_type.to_png_color_type();
         ihdr[10] = 0; // Compression method
         ihdr[11] = 0; // Filter method
         ihdr[12] = 0; // Interlace method
-        let ihdr = PngChunk::new(FourCC::IHDR, &ihdr, 0);
-        ihdr.write_to(&mut output);
+        PngChunk::new(FourCC::IHDR, &ihdr).write_to(&mut output);
 
         if let Some(palette) = palette {
             let palette = palette
@@ -338,20 +341,20 @@ impl<DE: DeflateEncoder> CustomPngEncoder<DE> {
                 .map(|v| [v.r, v.g, v.b])
                 .flatten()
                 .collect::<Vec<_>>();
-            let plte = PngChunk::new(FourCC::PLTE, &palette, 0);
-            plte.write_to(&mut output);
+            PngChunk::new(FourCC::PLTE, &palette).write_to(&mut output);
         }
 
-        let idat = PngChunk::new(FourCC::IDAT, data, 0);
-        idat.write_to(&mut output);
+        PngChunk::new(FourCC::IDAT, data).write_to(&mut output);
 
-        let iend = PngChunk::new(FourCC::IEND, &[], 0);
-        iend.write_to(&mut output);
+        PngChunk::new(FourCC::IEND, &[]).write_to(&mut output);
 
         Ok(output)
     }
 }
 
+/// Attempts to generate a palette from the image data.
+///
+/// Returns a tuple containing the palette and a boolean indicating if the palette is grayscale.
 pub fn attempt_to_generate_palette(image: &ImageData) -> Option<(Vec<RGB888>, bool)> {
     let mut palette = BTreeMap::new();
     let mut is_gray = true;

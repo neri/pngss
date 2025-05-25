@@ -53,12 +53,15 @@ pub struct PngChunk<'a> {
 
 impl<'a> PngChunk<'a> {
     #[inline]
-    pub fn new(chunk_type: FourCC, data: &'a [u8], crc: u32) -> Self {
-        Self {
+    pub fn new(chunk_type: FourCC, data: &'a [u8]) -> Self {
+        #[allow(unused_mut)]
+        let mut result = Self {
             chunk_type,
             data,
-            crc,
-        }
+            crc: 0,
+        };
+        // result.crc = result.compute_crc();
+        result
     }
 
     #[inline]
@@ -179,6 +182,11 @@ impl FourCC {
         !self.is_safe_to_copy()
     }
 
+    /// Convert to string.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the FourCC contains invalid UTF-8 characters.
     #[inline]
     pub fn as_str(&self) -> &str {
         core::str::from_utf8(&self.0).unwrap()

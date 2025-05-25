@@ -1,3 +1,5 @@
+//! A subset implementation of PNG decoder
+
 use super::*;
 
 pub type PngDecoder<'a> = CustomPngDecoder<'a, DefaultDeflateDecoder>;
@@ -118,11 +120,13 @@ impl<'a, DD: DeflateDecoder> CustomPngDecoder<'a, DD> {
         })
     }
 
+    /// Returns the image information.
     #[inline]
     pub fn info(&self) -> &ImageInfo {
         &self.info
     }
 
+    /// Returns the size of the buffer required to decompress IDAT chunks.
     #[inline]
     pub fn decoded_buffer_size(&self) -> usize {
         (1 + self.info.width as usize * self.info.image_type.n_channels() as usize)

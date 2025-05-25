@@ -1,6 +1,7 @@
 use crate::*;
 use alloc::boxed::Box;
 use alloc::vec::Vec;
+use core::fmt;
 use core::ops::Deref;
 
 pub struct ImageDataOwned {
@@ -67,19 +68,19 @@ impl ImageType {
         }
     }
 
-    /// Returns true if GrayscaleAlpha or RGBA
+    /// Returns `true` if GrayscaleAlpha or RGBA
     #[inline]
     pub fn has_alpha(&self) -> bool {
         matches!(self, Self::GrayscaleAlpha | Self::RGBA)
     }
 
-    /// Returns true if Grayscale or GrayscaleAlpha
+    /// Returns `true` if Grayscale or GrayscaleAlpha
     #[inline]
     pub fn is_gray_scale(&self) -> bool {
         matches!(self, Self::Grayscale | Self::GrayscaleAlpha)
     }
 
-    /// Returns true if other than Grayscale or GrayscaleAlpha
+    /// Returns `true` if other than Grayscale or GrayscaleAlpha
     #[inline]
     pub fn is_color(&self) -> bool {
         !self.is_gray_scale()
@@ -339,7 +340,7 @@ impl Deref for RgbBytes<'_> {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum BitDepth {
     One = 1,
     Two = 2,
@@ -366,5 +367,11 @@ impl BitDepth {
             Self::Four => 4,
             Self::Eight => 8,
         }
+    }
+}
+
+impl fmt::Debug for BitDepth {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "BitDepth({})", self.bits_per_pixel())
     }
 }
