@@ -33,5 +33,6 @@ compress = { git = "https://github.com/neri/compress.git", rev = "a67f018f14803d
 [workspace]
 members = [
     "bench",
+    "idatdump",
     "viewer",
 ]

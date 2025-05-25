@@ -1,0 +1,8 @@
+[package]
+name = "idatdump"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+pngss = { path = "../" }
+base64 = { version = "0.22" }
