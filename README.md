@@ -29,10 +29,18 @@
 
 ### /viewer: Image Viewer
 
-* Example application to display PNG files using `embedded-graphics`
+* An example application to display PNG files using `embedded-graphics`
 
 ```sh
 $ cargo run -p viewer FILE_NAME
+```
+
+## /idatdump: IDAT dumper
+
+* An example application showing the contents of IDAT chunks after decompression and before applying filters
+
+```sh
+$ cargo run -p idatdump FILE_NAME
 ```
 
 ## References
