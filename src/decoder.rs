@@ -1,4 +1,4 @@
-//! A subset implementation of PNG decoder
+//! An implementation of PNG Decoder
 
 use super::*;
 
@@ -127,6 +127,8 @@ impl<'a, DD: DeflateDecoder> CustomPngDecoder<'a, DD> {
     }
 
     /// Returns the size of the buffer required to decompress IDAT chunks.
+    ///
+    /// Equals to `(1 + width * n_channels) * height`
     #[inline]
     pub fn decoded_buffer_size(&self) -> usize {
         (1 + self.info.width as usize * self.info.image_type.n_channels() as usize)
@@ -168,19 +170,17 @@ impl<'a, DD: DeflateDecoder> CustomPngDecoder<'a, DD> {
         let data = chunks.get_idat_chunks(true)?;
 
         // Decompress the IDAT data
-        let inflated = DD::inflate(&data, self.decoded_buffer_size())?;
+        let buffer = DD::inflate(&data, self.decoded_buffer_size())?;
 
         // process filters
+        let n_channels = self.info.image_type.n_channels() as usize;
         let stride = if self.info.bit_depth > BitDepth::Eight {
-            self.info.width as usize * self.info.image_type.n_channels() as usize
+            self.info.width as usize * n_channels
         } else {
-            (self.info.width as usize
-                * self.info.image_type.n_channels() as usize
-                * self.info.bit_depth as usize
-                + 7)
-                / 8
+            (self.info.width as usize * n_channels * self.info.bit_depth as usize + 7) / 8
         };
-        let mut source = inflated.as_slice();
+
+        let mut source = buffer.as_slice();
         let mut reconstructed = Vec::with_capacity(stride * self.info.height as usize);
         let mut prev_line = Vec::with_capacity(stride);
         let mut line = Vec::with_capacity(stride);
@@ -198,7 +198,7 @@ impl<'a, DD: DeflateDecoder> CustomPngDecoder<'a, DD> {
                     line.extend_from_slice(line_src);
                 }
                 FilterType::Sub => match self.info.image_type.n_channels() {
-                    1 => {
+                    NumberOfChannnels::One => {
                         let mut prev = 0;
                         for &byte in line_src.iter() {
                             let byte = byte.wrapping_add(prev);
@@ -206,7 +206,7 @@ impl<'a, DD: DeflateDecoder> CustomPngDecoder<'a, DD> {
                             prev = byte;
                         }
                     }
-                    2 => {
+                    NumberOfChannnels::Two => {
                         let mut prev_y = 0;
                         let mut prev_a = 0;
                         for tuple in line_src.chunks_exact(2) {
@@ -219,7 +219,7 @@ impl<'a, DD: DeflateDecoder> CustomPngDecoder<'a, DD> {
                             prev_a = a;
                         }
                     }
-                    3 => {
+                    NumberOfChannnels::Three => {
                         let mut prev_r = 0;
                         let mut prev_g = 0;
                         let mut prev_b = 0;
@@ -236,7 +236,7 @@ impl<'a, DD: DeflateDecoder> CustomPngDecoder<'a, DD> {
                             prev_b = b;
                         }
                     }
-                    4 => {
+                    NumberOfChannnels::Four => {
                         let mut prev_r = 0;
                         let mut prev_g = 0;
                         let mut prev_b = 0;
@@ -257,7 +257,6 @@ impl<'a, DD: DeflateDecoder> CustomPngDecoder<'a, DD> {
                             prev_a = a;
                         }
                     }
-                    _ => unreachable!(),
                 },
                 FilterType::Up => {
                     if prev_line.is_empty() {
@@ -269,7 +268,7 @@ impl<'a, DD: DeflateDecoder> CustomPngDecoder<'a, DD> {
                     }
                 }
                 FilterType::Average => match self.info.image_type.n_channels() {
-                    1 => {
+                    NumberOfChannnels::One => {
                         let mut prev = 0;
                         for (x, &above) in line_src.iter().zip(prev_line.iter()) {
                             let x = x.wrapping_add(average(above, prev));
@@ -277,7 +276,7 @@ impl<'a, DD: DeflateDecoder> CustomPngDecoder<'a, DD> {
                             prev = x;
                         }
                     }
-                    2 => {
+                    NumberOfChannnels::Two => {
                         let mut prev_y = 0;
                         let mut prev_a = 0;
                         for (x, above) in line_src.chunks_exact(2).zip(prev_line.chunks_exact(2)) {
@@ -291,7 +290,7 @@ impl<'a, DD: DeflateDecoder> CustomPngDecoder<'a, DD> {
                             prev_a = a;
                         }
                     }
-                    3 => {
+                    NumberOfChannnels::Three => {
                         let mut prev_r = 0;
                         let mut prev_g = 0;
                         let mut prev_b = 0;
@@ -309,7 +308,7 @@ impl<'a, DD: DeflateDecoder> CustomPngDecoder<'a, DD> {
                             prev_b = b;
                         }
                     }
-                    4 => {
+                    NumberOfChannnels::Four => {
                         let mut prev_r = 0;
                         let mut prev_g = 0;
                         let mut prev_b = 0;
@@ -331,10 +330,9 @@ impl<'a, DD: DeflateDecoder> CustomPngDecoder<'a, DD> {
                             prev_a = a;
                         }
                     }
-                    _ => unreachable!(),
                 },
                 FilterType::Paeth => match self.info.image_type.n_channels() {
-                    1 => {
+                    NumberOfChannnels::One => {
                         let mut left = 0;
                         let mut upper_left = 0;
                         for (x, &above) in line_src.iter().zip(prev_line.iter()) {
@@ -344,7 +342,7 @@ impl<'a, DD: DeflateDecoder> CustomPngDecoder<'a, DD> {
                             upper_left = above;
                         }
                     }
-                    2 => {
+                    NumberOfChannnels::Two => {
                         let mut left_y = 0;
                         let mut left_a = 0;
                         let mut upper_left_y = 0;
@@ -362,7 +360,7 @@ impl<'a, DD: DeflateDecoder> CustomPngDecoder<'a, DD> {
                             upper_left_a = a_a;
                         }
                     }
-                    3 => {
+                    NumberOfChannnels::Three => {
                         let mut left_r = 0;
                         let mut left_g = 0;
                         let mut left_b = 0;
@@ -386,7 +384,7 @@ impl<'a, DD: DeflateDecoder> CustomPngDecoder<'a, DD> {
                             upper_left_b = a_b;
                         }
                     }
-                    4 => {
+                    NumberOfChannnels::Four => {
                         let mut left_r = 0;
                         let mut left_g = 0;
                         let mut left_b = 0;
@@ -416,7 +414,6 @@ impl<'a, DD: DeflateDecoder> CustomPngDecoder<'a, DD> {
                             upper_left_a = a_a;
                         }
                     }
-                    _ => unreachable!(),
                 },
             }
             reconstructed.extend_from_slice(&line);

@@ -1,8 +1,8 @@
-//! A subset implementation of PNG encoder
+//! An implementation of PNG Encoder
 
 use super::*;
 use alloc::collections::BTreeMap;
-use compress::{deflate::OptionConfig, entropy::entropy_of_blocks};
+use compress::entropy::entropy_of_blocks;
 
 pub type PngEncoder = CustomPngEncoder<DefaultDeflateEncoder>;
 
@@ -16,8 +16,11 @@ pub struct CustomPngEncoder<DE: DeflateEncoder> {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum CompressionLevel {
+    /// Fast compression,
     Fast,
+    /// Default compression level, usually balanced between speed and size.
     Default,
+    /// Best compression level, usually slower but results in smaller size.
     Best,
 }
 
@@ -28,14 +31,14 @@ pub struct DefaultDeflateEncoder;
 impl DeflateEncoder for DefaultDeflateEncoder {
     #[inline(always)]
     fn deflate(input: &[u8], level: CompressionLevel) -> Result<Vec<u8>, EncodeError> {
-        deflate::deflate(
+        deflate::deflate_zlib(
             input,
             match level {
                 CompressionLevel::Fast => deflate::CompressionLevel::Fastest,
                 CompressionLevel::Default => deflate::CompressionLevel::Default,
                 CompressionLevel::Best => deflate::CompressionLevel::Best,
             },
-            OptionConfig::new().zlib().into(),
+            None,
         )
         .map_err(|_| EncodeError::InvalidInput)
     }
@@ -107,6 +110,7 @@ impl<DE: DeflateEncoder> CustomPngEncoder<DE> {
                 image.data,
                 info.image_type.n_channels(),
                 level,
+                false,
             )?,
             None,
             BitDepth::Eight,
@@ -176,10 +180,24 @@ impl<DE: DeflateEncoder> CustomPngEncoder<DE> {
             BitDepth::Eight => (width as usize, Cow::Borrowed(data)),
         };
 
+        let idat = if level == CompressionLevel::Fast {
+            Self::generate_idat(stride, height, &data, NumberOfChannnels::One, level, true)?
+        } else {
+            let idat1 =
+                Self::generate_idat(stride, height, &data, NumberOfChannnels::One, level, true)?;
+            let idat2 =
+                Self::generate_idat(stride, height, &data, NumberOfChannnels::One, level, false)?;
+            if idat1.len() < idat2.len() {
+                idat1
+            } else {
+                idat2
+            }
+        };
+
         Self::generate_png(
             width,
             height,
-            &Self::generate_idat(stride, height, &data, 1, level)?,
+            &idat,
             Some(palette),
             bits,
             ImageType::Indexed,
@@ -191,11 +209,12 @@ impl<DE: DeflateEncoder> CustomPngEncoder<DE> {
         stride: usize,
         height: u32,
         data: &[u8],
-        n_channels: usize,
+        n_channels: NumberOfChannnels,
         level: CompressionLevel,
+        is_filter_none: bool,
     ) -> Result<Vec<u8>, EncodeError> {
         let mut new_data = Vec::with_capacity((1 + stride) * height as usize);
-        if level == CompressionLevel::Fast {
+        if is_filter_none || level == CompressionLevel::Fast {
             for line in data.chunks_exact(stride) {
                 new_data.push(FilterType::None as u8);
                 new_data.extend_from_slice(line);
@@ -204,7 +223,8 @@ impl<DE: DeflateEncoder> CustomPngEncoder<DE> {
         } else {
             let mut prev_line = None;
             for current_line in data.chunks_exact(stride) {
-                let (filter, new_line) = Self::process_line(current_line, &prev_line, n_channels);
+                let (filter, new_line) =
+                    Self::process_scanline(current_line, &prev_line, n_channels);
                 new_data.push(filter as u8);
                 new_data.extend_from_slice(&new_line);
                 prev_line = Some(current_line);
@@ -213,26 +233,26 @@ impl<DE: DeflateEncoder> CustomPngEncoder<DE> {
         }
     }
 
-    /// Processes a single line of image data with various filters and selects the best one based on entropy.
-    fn process_line<'a>(
-        current_line: &'a [u8],
+    /// Processes a single scanline of image data with various filters and selects the best one based on entropy.
+    fn process_scanline<'a>(
+        this_line: &'a [u8],
         prev_line: &Option<&[u8]>,
-        n_channels: usize,
+        n_channels: NumberOfChannnels,
     ) -> (FilterType, Cow<'a, [u8]>) {
         // Filter None
         // Filt(x) = Orig(x)
         let mut selected_line = (
-            entropy_of_blocks(&[&[FilterType::None as u8], current_line]),
+            entropy_of_blocks(&[&[FilterType::None as u8], this_line]),
             FilterType::None,
-            Cow::Borrowed(current_line),
+            Cow::Borrowed(this_line),
         );
 
         {
             // Filter Sub
             // Filt(x) = Orig(x) - Orig(a)
             let mut left_pixel = [0; 4];
-            let mut new_data = Vec::with_capacity(current_line.len());
-            for chunk in current_line.chunks_exact(n_channels) {
+            let mut new_data = Vec::with_capacity(this_line.len());
+            for chunk in this_line.chunks_exact(n_channels.as_usize()) {
                 for (left, &current) in left_pixel.iter_mut().zip(chunk.iter()) {
                     let filt = current.wrapping_sub(*left);
                     new_data.push(filt);
@@ -249,8 +269,8 @@ impl<DE: DeflateEncoder> CustomPngEncoder<DE> {
             {
                 // Filter Up
                 // Filt(x) = Orig(x) - Orig(b)
-                let mut new_data = Vec::with_capacity(current_line.len());
-                for (current, &above) in current_line.iter().zip(prev_line.iter()) {
+                let mut new_data = Vec::with_capacity(this_line.len());
+                for (current, &above) in this_line.iter().zip(prev_line.iter()) {
                     let filt = current.wrapping_sub(above);
                     new_data.push(filt);
                 }
@@ -263,11 +283,11 @@ impl<DE: DeflateEncoder> CustomPngEncoder<DE> {
             {
                 // Filter Average
                 // Filt(x) = Orig(x) - floor((Orig(a) + Orig(b)) / 2)
-                let mut new_data = Vec::with_capacity(current_line.len());
+                let mut new_data = Vec::with_capacity(this_line.len());
                 let mut left_pixel = [0; 4];
-                for (current, prev) in current_line
-                    .chunks_exact(n_channels)
-                    .zip(prev_line.chunks_exact(n_channels))
+                for (current, prev) in this_line
+                    .chunks_exact(n_channels.as_usize())
+                    .zip(prev_line.chunks_exact(n_channels.as_usize()))
                 {
                     for (left, (&current, &above)) in
                         left_pixel.iter_mut().zip(current.iter().zip(prev.iter()))
@@ -286,12 +306,12 @@ impl<DE: DeflateEncoder> CustomPngEncoder<DE> {
             {
                 // Filter Paeth
                 // Filt(x) = Orig(x) - PaethPredictor(Orig(a), Orig(b), Orig(c))
-                let mut new_data = Vec::with_capacity(current_line.len());
+                let mut new_data = Vec::with_capacity(this_line.len());
                 let mut left_pixel = [0; 4];
                 let mut upper_left_pixel = [0; 4];
-                for (current, prev) in current_line
-                    .chunks_exact(n_channels)
-                    .zip(prev_line.chunks_exact(n_channels))
+                for (current, prev) in this_line
+                    .chunks_exact(n_channels.as_usize())
+                    .zip(prev_line.chunks_exact(n_channels.as_usize()))
                 {
                     for ((left, upper_left), (&current, &above)) in left_pixel
                         .iter_mut()

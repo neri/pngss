@@ -42,7 +42,7 @@ fn basic_image_test(input: &ImageData, expected: Option<&[u8]>) {
 }
 
 #[test]
-fn test_b8x8() {
+fn test_black_8x8() {
     let data = &[0u8; 8 * 8 * 3];
     let image = ImageData::new(8, 8, ImageType::RGB, &[], data);
 
@@ -58,7 +58,7 @@ fn test_b8x8() {
 }
 
 #[test]
-fn test_w8x8() {
+fn test_white_8x8() {
     let data = &[0xffu8; 8 * 8 * 3];
     let image = ImageData::new(8, 8, ImageType::RGB, &[], data);
 

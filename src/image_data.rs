@@ -47,13 +47,13 @@ impl ImageType {
     /// - RGBA: 4
     /// - Indexed: 1
     #[inline]
-    pub fn n_channels(&self) -> usize {
+    pub fn n_channels(&self) -> NumberOfChannnels {
         match self {
-            ImageType::Grayscale => 1,
-            ImageType::GrayscaleAlpha => 2,
-            ImageType::RGB => 3,
-            ImageType::RGBA => 4,
-            ImageType::Indexed => 1,
+            ImageType::Grayscale => NumberOfChannnels::One,
+            ImageType::GrayscaleAlpha => NumberOfChannnels::Two,
+            ImageType::RGB => NumberOfChannnels::Three,
+            ImageType::RGBA => NumberOfChannnels::Four,
+            ImageType::Indexed => NumberOfChannnels::One,
         }
     }
 
@@ -136,7 +136,7 @@ impl ImageType {
             }
             _ => {
                 // Convert to RGBA
-                let mut output = Vec::with_capacity(input.len() / self.n_channels() * 4);
+                let mut output = Vec::with_capacity(input.len() / self.n_channels().as_usize() * 4);
                 for rgba in self.iter(input, palette) {
                     output.push(rgba.r());
                     output.push(rgba.g());
@@ -156,7 +156,7 @@ impl ImageType {
             }
             _ => {
                 // Convert to RGB
-                let mut output = Vec::with_capacity(input.len() / self.n_channels() * 3);
+                let mut output = Vec::with_capacity(input.len() / self.n_channels().as_usize() * 3);
                 for rgba in self.iter(input, palette) {
                     output.push(rgba.r());
                     output.push(rgba.g());
@@ -165,6 +165,21 @@ impl ImageType {
                 RgbBytes(Cow::Owned(output))
             }
         }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum NumberOfChannnels {
+    One = 1,
+    Two,
+    Three,
+    Four,
+}
+
+impl NumberOfChannnels {
+    #[inline]
+    pub const fn as_usize(self) -> usize {
+        self as usize
     }
 }
 

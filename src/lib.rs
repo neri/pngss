@@ -1,4 +1,4 @@
-//! A subset implementation of PNG encoder and decoder
+//! An implementation of PNG Encoder and Decoder
 //!
 //! ## Features
 //!
