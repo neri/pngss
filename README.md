@@ -1,10 +1,11 @@
-# An implementation of PNG Encoder and Decoder
+# pngss: An implementation of PNG Encoder and Decoder
 
 ## Features
 
 * Pure Rust Implementation
 * Support for `no_std`
 * It generally provides sufficient functionality for most applications, but some features are not supported.
+* The default deflate library uses our implementation. We are constantly improving it, but if you are not satisfied with its performance, you can implement a custom class to replace it with another implementation. See also `DeflateDecoder` or `DeflateEncoder`.
 * The detailed specifications are subject to change as it is still under development.
 
 ### MSRV
@@ -37,11 +38,22 @@ $ cargo run -p viewer FILE_NAME
 
 ## /idatdump: IDAT dumper
 
-* An example application showing the contents of IDAT chunks after decompression and before applying filters
+* An example application showing the contents of IDAT chunks
 
 ```sh
-$ cargo run -p idatdump FILE_NAME
+$ cargo run -p idatdump -- [MODE] [OPTIONS] [--] FILE_NAME
 ```
+
+### Modes:
+* `-raw`       Decompress IDAT chunks and dump them as is **(default)**
+* `-filter`    Decompress IDAT chunks to show only filter types
+* `-decoded`   Dumps the final decoding results of the image data
+
+### Options:
+
+* `-hex`    Show hex dump **(default)**
+* `-bin`    Show binary
+* `-b64`    Show in base64
 
 ## References
 

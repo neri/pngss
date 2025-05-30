@@ -1,9 +1,11 @@
 //! An implementation of PNG Decoder
 
 use super::*;
+use core::sync::atomic::{Ordering, compiler_fence};
 
 pub type PngDecoder<'a> = CustomPngDecoder<'a, DefaultDeflateDecoder>;
 
+/// Interface to implement the inflate (deflate decompression) function
 pub trait DeflateDecoder {
     fn inflate(input: &[u8], size: usize) -> Result<Vec<u8>, DecodeError>;
 }
@@ -32,6 +34,7 @@ impl<'a, DD: DeflateDecoder> CustomPngDecoder<'a, DD> {
     pub fn new(input: &'a [u8]) -> Result<Self, DecodeError> {
         let (signature, next) = input.split_at_checked(8).ok_or(DecodeError::InvalidData)?;
         if signature != PNG_SIGNATURE {
+            // PNG signature must be the first 8 bytes.
             return Err(DecodeError::InvalidData);
         }
 
@@ -41,12 +44,14 @@ impl<'a, DD: DeflateDecoder> CustomPngDecoder<'a, DD> {
         let mut ihdr = PngChunksInner { slice: ihdr };
         let ihdr = ihdr.next_chunk()?;
         if ihdr.chunk_type() != FourCC::IHDR || ihdr.len() != IHDR_SIZE {
+            // IHDR chunk must be the first chunk and must have a size of 13 bytes.
             return Err(DecodeError::InvalidData);
         }
 
         let width = Be32(ihdr.data()[0..4].try_into().unwrap()).as_u32();
         let height = Be32(ihdr.data()[4..8].try_into().unwrap()).as_u32();
         if width == 0 || height == 0 {
+            // Zero is an invalid value.
             return Err(DecodeError::InvalidData);
         }
         if cfg!(target_pointer_width = "32") && (width.saturating_mul(height) > 0x1000_0000) {
@@ -58,15 +63,16 @@ impl<'a, DD: DeflateDecoder> CustomPngDecoder<'a, DD> {
             return Err(DecodeError::UnsupportedFormat);
         };
         let color_type = ihdr.data()[9];
-        let image_type = match (color_type, bit_depth) {
-            (0, BitDepth::Eight) => ImageType::Grayscale,
-            (2, BitDepth::Eight) => ImageType::RGB,
+        let color_type = match (color_type, bit_depth) {
+            (0, BitDepth::Eight) => ColorType::Grayscale,
+            (2, BitDepth::Eight) => ColorType::RGB,
             (3, BitDepth::One)
             | (3, BitDepth::Two)
             | (3, BitDepth::Four)
-            | (3, BitDepth::Eight) => ImageType::Indexed,
-            (4, BitDepth::Eight) => ImageType::GrayscaleAlpha,
-            (6, BitDepth::Eight) => ImageType::RGBA,
+            | (3, BitDepth::Eight) => ColorType::Indexed,
+            (4, BitDepth::Eight) => ColorType::GrayscaleAlpha,
+            (6, BitDepth::Eight) => ColorType::RGBA,
+            // Unsupported color types
             _ => return Err(DecodeError::UnsupportedFormat),
         };
 
@@ -74,6 +80,7 @@ impl<'a, DD: DeflateDecoder> CustomPngDecoder<'a, DD> {
         let filter_method = ihdr.data()[11];
         let interlace_method = ihdr.data()[12];
         if compression_method != 0 || filter_method != 0 || interlace_method != 0 {
+            // Only compression method 0, filter method 0, and interlace method 0 are supported.
             return Err(DecodeError::UnsupportedFormat);
         }
 
@@ -81,7 +88,7 @@ impl<'a, DD: DeflateDecoder> CustomPngDecoder<'a, DD> {
             width,
             height,
             bit_depth,
-            image_type,
+            color_type,
         };
 
         Ok(Self {
@@ -131,7 +138,7 @@ impl<'a, DD: DeflateDecoder> CustomPngDecoder<'a, DD> {
     /// Equals to `(1 + width * n_channels) * height`
     #[inline]
     pub fn decoded_buffer_size(&self) -> usize {
-        (1 + self.info.width as usize * self.info.image_type.n_channels() as usize)
+        (1 + self.info.width as usize * self.info.color_type.n_channels() as usize)
             * self.info.height as usize
     }
 
@@ -172,254 +179,8 @@ impl<'a, DD: DeflateDecoder> CustomPngDecoder<'a, DD> {
         // Decompress the IDAT data
         let buffer = DD::inflate(&data, self.decoded_buffer_size())?;
 
-        // process filters
-        let n_channels = self.info.image_type.n_channels() as usize;
-        let stride = if self.info.bit_depth > BitDepth::Eight {
-            self.info.width as usize * n_channels
-        } else {
-            (self.info.width as usize * n_channels * self.info.bit_depth as usize + 7) / 8
-        };
-
-        let mut source = buffer.as_slice();
-        let mut reconstructed = Vec::with_capacity(stride * self.info.height as usize);
-        let mut prev_line = Vec::with_capacity(stride);
-        let mut line = Vec::with_capacity(stride);
-        for _y in 0..self.info.height as usize {
-            let Some((filter_type, next)) = source.split_at_checked(1) else {
-                return Err(DecodeError::InvalidData);
-            };
-            let filter_type = FilterType::new(filter_type[0]).ok_or(DecodeError::InvalidData)?;
-            let Some((line_src, next)) = next.split_at_checked(stride) else {
-                return Err(DecodeError::InvalidData);
-            };
-            line.clear();
-            match filter_type {
-                FilterType::None => {
-                    line.extend_from_slice(line_src);
-                }
-                FilterType::Sub => match self.info.image_type.n_channels() {
-                    NumberOfChannnels::One => {
-                        let mut prev = 0;
-                        for &byte in line_src.iter() {
-                            let byte = byte.wrapping_add(prev);
-                            line.push(byte);
-                            prev = byte;
-                        }
-                    }
-                    NumberOfChannnels::Two => {
-                        let mut prev_y = 0;
-                        let mut prev_a = 0;
-                        for tuple in line_src.chunks_exact(2) {
-                            let (y, a) = (tuple[0], tuple[1]);
-                            let y = y.wrapping_add(prev_y);
-                            let a = a.wrapping_add(prev_a);
-                            line.push(y);
-                            line.push(a);
-                            prev_y = y;
-                            prev_a = a;
-                        }
-                    }
-                    NumberOfChannnels::Three => {
-                        let mut prev_r = 0;
-                        let mut prev_g = 0;
-                        let mut prev_b = 0;
-                        for tuple in line_src.chunks_exact(3) {
-                            let (r, g, b) = (tuple[0], tuple[1], tuple[2]);
-                            let r = r.wrapping_add(prev_r);
-                            let g = g.wrapping_add(prev_g);
-                            let b = b.wrapping_add(prev_b);
-                            line.push(r);
-                            line.push(g);
-                            line.push(b);
-                            prev_r = r;
-                            prev_g = g;
-                            prev_b = b;
-                        }
-                    }
-                    NumberOfChannnels::Four => {
-                        let mut prev_r = 0;
-                        let mut prev_g = 0;
-                        let mut prev_b = 0;
-                        let mut prev_a = 0;
-                        for tuple in line_src.chunks_exact(4) {
-                            let (r, g, b, a) = (tuple[0], tuple[1], tuple[2], tuple[3]);
-                            let r = r.wrapping_add(prev_r);
-                            let g = g.wrapping_add(prev_g);
-                            let b = b.wrapping_add(prev_b);
-                            let a = a.wrapping_add(prev_a);
-                            line.push(r);
-                            line.push(g);
-                            line.push(b);
-                            line.push(a);
-                            prev_r = r;
-                            prev_g = g;
-                            prev_b = b;
-                            prev_a = a;
-                        }
-                    }
-                },
-                FilterType::Up => {
-                    if prev_line.is_empty() {
-                        line.extend_from_slice(line_src);
-                    } else {
-                        for (&x, &above) in line_src.iter().zip(prev_line.iter()) {
-                            line.push(x.wrapping_add(above));
-                        }
-                    }
-                }
-                FilterType::Average => match self.info.image_type.n_channels() {
-                    NumberOfChannnels::One => {
-                        let mut prev = 0;
-                        for (x, &above) in line_src.iter().zip(prev_line.iter()) {
-                            let x = x.wrapping_add(average(above, prev));
-                            line.push(x);
-                            prev = x;
-                        }
-                    }
-                    NumberOfChannnels::Two => {
-                        let mut prev_y = 0;
-                        let mut prev_a = 0;
-                        for (x, above) in line_src.chunks_exact(2).zip(prev_line.chunks_exact(2)) {
-                            let (y, a) = (x[0], x[1]);
-                            let (a_y, a_a) = (above[0], above[1]);
-                            let y = y.wrapping_add(average(a_y, prev_y));
-                            let a = a.wrapping_add(average(a_a, prev_a));
-                            line.push(y);
-                            line.push(a);
-                            prev_y = y;
-                            prev_a = a;
-                        }
-                    }
-                    NumberOfChannnels::Three => {
-                        let mut prev_r = 0;
-                        let mut prev_g = 0;
-                        let mut prev_b = 0;
-                        for (x, above) in line_src.chunks_exact(3).zip(prev_line.chunks_exact(3)) {
-                            let (r, g, b) = (x[0], x[1], x[2]);
-                            let (a_r, a_g, a_b) = (above[0], above[1], above[2]);
-                            let r = r.wrapping_add(average(a_r, prev_r));
-                            let g = g.wrapping_add(average(a_g, prev_g));
-                            let b = b.wrapping_add(average(a_b, prev_b));
-                            line.push(r);
-                            line.push(g);
-                            line.push(b);
-                            prev_r = r;
-                            prev_g = g;
-                            prev_b = b;
-                        }
-                    }
-                    NumberOfChannnels::Four => {
-                        let mut prev_r = 0;
-                        let mut prev_g = 0;
-                        let mut prev_b = 0;
-                        let mut prev_a = 0;
-                        for (x, above) in line_src.chunks_exact(4).zip(prev_line.chunks_exact(4)) {
-                            let (r, g, b, a) = (x[0], x[1], x[2], x[3]);
-                            let (a_r, a_g, a_b, a_a) = (above[0], above[1], above[2], above[3]);
-                            let r = r.wrapping_add(average(a_r, prev_r));
-                            let g = g.wrapping_add(average(a_g, prev_g));
-                            let b = b.wrapping_add(average(a_b, prev_b));
-                            let a = a.wrapping_add(average(a_a, prev_a));
-                            line.push(r);
-                            line.push(g);
-                            line.push(b);
-                            line.push(a);
-                            prev_r = r;
-                            prev_g = g;
-                            prev_b = b;
-                            prev_a = a;
-                        }
-                    }
-                },
-                FilterType::Paeth => match self.info.image_type.n_channels() {
-                    NumberOfChannnels::One => {
-                        let mut left = 0;
-                        let mut upper_left = 0;
-                        for (x, &above) in line_src.iter().zip(prev_line.iter()) {
-                            let x = x.wrapping_add(paeth(left, above, upper_left));
-                            line.push(x);
-                            left = x;
-                            upper_left = above;
-                        }
-                    }
-                    NumberOfChannnels::Two => {
-                        let mut left_y = 0;
-                        let mut left_a = 0;
-                        let mut upper_left_y = 0;
-                        let mut upper_left_a = 0;
-                        for (x, above) in line_src.chunks_exact(2).zip(prev_line.chunks_exact(2)) {
-                            let (y, a) = (x[0], x[1]);
-                            let (a_y, a_a) = (above[0], above[1]);
-                            let y = y.wrapping_add(paeth(left_y, a_y, upper_left_y));
-                            let a = a.wrapping_add(paeth(left_a, a_a, upper_left_a));
-                            line.push(y);
-                            line.push(a);
-                            left_y = y;
-                            left_a = a;
-                            upper_left_y = a_y;
-                            upper_left_a = a_a;
-                        }
-                    }
-                    NumberOfChannnels::Three => {
-                        let mut left_r = 0;
-                        let mut left_g = 0;
-                        let mut left_b = 0;
-                        let mut upper_left_r = 0;
-                        let mut upper_left_g = 0;
-                        let mut upper_left_b = 0;
-                        for (x, above) in line_src.chunks_exact(3).zip(prev_line.chunks_exact(3)) {
-                            let (r, g, b) = (x[0], x[1], x[2]);
-                            let (a_r, a_g, a_b) = (above[0], above[1], above[2]);
-                            let r = r.wrapping_add(paeth(left_r, a_r, upper_left_r));
-                            let g = g.wrapping_add(paeth(left_g, a_g, upper_left_g));
-                            let b = b.wrapping_add(paeth(left_b, a_b, upper_left_b));
-                            line.push(r);
-                            line.push(g);
-                            line.push(b);
-                            left_r = r;
-                            left_g = g;
-                            left_b = b;
-                            upper_left_r = a_r;
-                            upper_left_g = a_g;
-                            upper_left_b = a_b;
-                        }
-                    }
-                    NumberOfChannnels::Four => {
-                        let mut left_r = 0;
-                        let mut left_g = 0;
-                        let mut left_b = 0;
-                        let mut left_a = 0;
-                        let mut upper_left_r = 0;
-                        let mut upper_left_g = 0;
-                        let mut upper_left_b = 0;
-                        let mut upper_left_a = 0;
-                        for (x, above) in line_src.chunks_exact(4).zip(prev_line.chunks_exact(4)) {
-                            let (r, g, b, a) = (x[0], x[1], x[2], x[3]);
-                            let (a_r, a_g, a_b, a_a) = (above[0], above[1], above[2], above[3]);
-                            let r = r.wrapping_add(paeth(left_r, a_r, upper_left_r));
-                            let g = g.wrapping_add(paeth(left_g, a_g, upper_left_g));
-                            let b = b.wrapping_add(paeth(left_b, a_b, upper_left_b));
-                            let a = a.wrapping_add(paeth(left_a, a_a, upper_left_a));
-                            line.push(r);
-                            line.push(g);
-                            line.push(b);
-                            line.push(a);
-                            left_r = r;
-                            left_g = g;
-                            left_b = b;
-                            left_a = a;
-                            upper_left_r = a_r;
-                            upper_left_g = a_g;
-                            upper_left_b = a_b;
-                            upper_left_a = a_a;
-                        }
-                    }
-                },
-            }
-            reconstructed.extend_from_slice(&line);
-            core::mem::swap(&mut line, &mut prev_line);
-            source = next;
-        }
+        // Apply filters
+        let mut reconstructed = self.apply_filter(buffer)?;
 
         // fix bit depth less than 8
         if self.info.bit_depth < BitDepth::Eight {
@@ -491,7 +252,7 @@ impl<'a, DD: DeflateDecoder> CustomPngDecoder<'a, DD> {
         }
 
         // pallete check
-        if self.info.image_type == ImageType::Indexed {
+        if self.info.color_type == ColorType::Indexed {
             let Some(palette) = palette.as_ref() else {
                 return Err(DecodeError::InvalidData);
             };
@@ -507,6 +268,539 @@ impl<'a, DD: DeflateDecoder> CustomPngDecoder<'a, DD> {
             palette: palette.unwrap_or_default(),
             data: reconstructed,
         })
+    }
+
+    #[inline(always)]
+    fn apply_filter(&self, mut buffer: Vec<u8>) -> Result<Vec<u8>, DecodeError> {
+        let width = self.info.width as usize;
+        let stride = if self.info.bit_depth > BitDepth::Eight {
+            width as usize * self.info.color_type.n_channels() as usize
+        } else {
+            (width as usize
+                * self.info.color_type.n_channels() as usize
+                * self.info.bit_depth as usize
+                + 7)
+                / 8
+        };
+
+        match self.info.color_type.n_channels() {
+            NumberOfChannnels::One => {
+                let mut dest = 0;
+                let mut src = 0;
+                let mut prev_line = Option::<usize>::None;
+                for _y in 0..self.info.height {
+                    let filter_type = buffer[src];
+                    let filter_type =
+                        FilterType::new(filter_type).ok_or(DecodeError::InvalidData)?;
+                    src += 1;
+                    let this_line = dest;
+                    match filter_type {
+                        // Recon(x) = Filt(x)
+                        FilterType::None => {
+                            for _x in 0..stride {
+                                buffer[dest] = buffer[src];
+                                dest += 1;
+                                src += 1;
+                            }
+                        }
+                        // Recon(x) = Filt(x) + Recon(a)
+                        FilterType::Sub => {
+                            let mut left_pixel = 0;
+                            for _x in 0..width {
+                                let y = buffer[src].wrapping_add(left_pixel);
+                                buffer[dest] = y;
+                                left_pixel = y;
+                                dest += 1;
+                                src += 1;
+                            }
+                        }
+                        // Recon(x) = Filt(x) + Recon(b)
+                        FilterType::Up => {
+                            if let Some(prev_line) = prev_line {
+                                let mut src2 = prev_line;
+                                for _x in 0..stride {
+                                    buffer[dest] = buffer[src].wrapping_add(buffer[src2]);
+                                    dest += 1;
+                                    src += 1;
+                                    src2 += 1;
+                                }
+                            } else {
+                                for _x in 0..stride {
+                                    buffer[dest] = buffer[src];
+                                    dest += 1;
+                                    src += 1;
+                                }
+                            }
+                        }
+                        // Recon(x) = Filt(x) + floor((Recon(a) + Recon(b)) / 2)
+                        FilterType::Average => {
+                            if let Some(prev_line) = prev_line {
+                                let mut left_pixel = 0;
+                                let mut src2 = prev_line;
+                                for _x in 0..width {
+                                    let y =
+                                        buffer[src].wrapping_add(average(left_pixel, buffer[src2]));
+                                    compiler_fence(Ordering::SeqCst);
+                                    buffer[dest] = y;
+                                    left_pixel = y;
+                                    dest += 1;
+                                    src += 1;
+                                    src2 += 1;
+                                }
+                            } else {
+                                for _x in 0..stride {
+                                    buffer[dest] = buffer[src];
+                                    dest += 1;
+                                    src += 1;
+                                }
+                            }
+                        }
+                        // Recon(x) = Filt(x) + PaethPredictor(Recon(a), Recon(b), Recon(c))
+                        FilterType::Paeth => {
+                            if let Some(prev_line) = prev_line {
+                                let mut left_pixel = 0;
+                                let mut upper_left = 0;
+                                let mut src2 = prev_line;
+                                for _x in 0..width {
+                                    let above_y = buffer[src2];
+                                    let y = buffer[src]
+                                        .wrapping_add(paeth(left_pixel, above_y, upper_left));
+                                    compiler_fence(Ordering::SeqCst);
+                                    buffer[dest] = y;
+                                    left_pixel = y;
+                                    upper_left = above_y;
+                                    dest += 1;
+                                    src += 1;
+                                    src2 += 1;
+                                }
+                            } else {
+                                for _x in 0..stride {
+                                    buffer[dest] = buffer[src];
+                                    dest += 1;
+                                    src += 1;
+                                }
+                            }
+                        }
+                    }
+                    prev_line = Some(this_line);
+                }
+            }
+            NumberOfChannnels::Two => {
+                let mut dest = 0;
+                let mut src = 0;
+                let mut prev_line = Option::<usize>::None;
+                for _y in 0..self.info.height {
+                    let filter_type = buffer[src];
+                    let filter_type =
+                        FilterType::new(filter_type).ok_or(DecodeError::InvalidData)?;
+                    src += 1;
+                    let this_line = dest;
+                    match filter_type {
+                        // Recon(x) = Filt(x)
+                        FilterType::None => {
+                            for _x in 0..stride {
+                                buffer[dest] = buffer[src];
+                                dest += 1;
+                                src += 1;
+                            }
+                        }
+                        // Recon(x) = Filt(x) + Recon(a)
+                        FilterType::Sub => {
+                            let mut left_pixel = [0; 4];
+                            for _x in 0..width {
+                                let y = buffer[src].wrapping_add(left_pixel[0]);
+                                let a = buffer[src + 1].wrapping_add(left_pixel[1]);
+                                buffer[dest] = y;
+                                buffer[dest + 1] = a;
+                                left_pixel[0] = y;
+                                left_pixel[1] = a;
+                                dest += 2;
+                                src += 2;
+                            }
+                        }
+                        // Recon(x) = Filt(x) + Recon(b)
+                        FilterType::Up => {
+                            if let Some(prev_line) = prev_line {
+                                let mut src2 = prev_line;
+                                for _x in 0..stride {
+                                    buffer[dest] = buffer[src].wrapping_add(buffer[src2]);
+                                    dest += 1;
+                                    src += 1;
+                                    src2 += 1;
+                                }
+                            } else {
+                                for _x in 0..stride {
+                                    buffer[dest] = buffer[src];
+                                    dest += 1;
+                                    src += 1;
+                                }
+                            }
+                        }
+                        // Recon(x) = Filt(x) + floor((Recon(a) + Recon(b)) / 2)
+                        FilterType::Average => {
+                            if let Some(prev_line) = prev_line {
+                                let mut left_pixel = [0; 4];
+                                let mut src2 = prev_line;
+                                for _x in 0..width {
+                                    let y = buffer[src]
+                                        .wrapping_add(average(left_pixel[0], buffer[src2]));
+                                    let a = buffer[src + 1]
+                                        .wrapping_add(average(left_pixel[1], buffer[src2 + 1]));
+                                    compiler_fence(Ordering::SeqCst);
+                                    buffer[dest] = y;
+                                    buffer[dest + 1] = a;
+                                    left_pixel[0] = y;
+                                    left_pixel[1] = a;
+                                    dest += 2;
+                                    src += 2;
+                                    src2 += 2;
+                                }
+                            } else {
+                                for _x in 0..stride {
+                                    buffer[dest] = buffer[src];
+                                    dest += 1;
+                                    src += 1;
+                                }
+                            }
+                        }
+                        // Recon(x) = Filt(x) + PaethPredictor(Recon(a), Recon(b), Recon(c))
+                        FilterType::Paeth => {
+                            if let Some(prev_line) = prev_line {
+                                let mut left_pixel = [0; 4];
+                                let mut upper_left = [0; 4];
+                                let mut src2 = prev_line;
+                                for _x in 0..width {
+                                    let (above_y, above_a) = (buffer[src2], buffer[src2 + 1]);
+                                    let y = buffer[src].wrapping_add(paeth(
+                                        left_pixel[0],
+                                        above_y,
+                                        upper_left[0],
+                                    ));
+                                    let a = buffer[src + 1].wrapping_add(paeth(
+                                        left_pixel[1],
+                                        above_a,
+                                        upper_left[1],
+                                    ));
+                                    compiler_fence(Ordering::SeqCst);
+                                    buffer[dest] = y;
+                                    buffer[dest + 1] = a;
+                                    left_pixel[0] = y;
+                                    left_pixel[1] = a;
+                                    upper_left[0] = above_y;
+                                    upper_left[1] = above_a;
+                                    dest += 2;
+                                    src += 2;
+                                    src2 += 2;
+                                }
+                            } else {
+                                for _x in 0..stride {
+                                    buffer[dest] = buffer[src];
+                                    dest += 1;
+                                    src += 1;
+                                }
+                            }
+                        }
+                    }
+                    prev_line = Some(this_line);
+                }
+            }
+            NumberOfChannnels::Three => {
+                let mut dest = 0;
+                let mut src = 0;
+                let mut prev_line = Option::<usize>::None;
+                for _y in 0..self.info.height {
+                    let filter_type = buffer[src];
+                    let filter_type =
+                        FilterType::new(filter_type).ok_or(DecodeError::InvalidData)?;
+                    src += 1;
+                    let this_line = dest;
+                    match filter_type {
+                        // Recon(x) = Filt(x)
+                        FilterType::None => {
+                            for _x in 0..stride {
+                                buffer[dest] = buffer[src];
+                                dest += 1;
+                                src += 1;
+                            }
+                        }
+                        // Recon(x) = Filt(x) + Recon(a)
+                        FilterType::Sub => {
+                            let mut left_pixel = [0; 4];
+                            for _x in 0..width {
+                                let r = buffer[src].wrapping_add(left_pixel[0]);
+                                let g = buffer[src + 1].wrapping_add(left_pixel[1]);
+                                let b = buffer[src + 2].wrapping_add(left_pixel[2]);
+                                buffer[dest] = r;
+                                buffer[dest + 1] = g;
+                                buffer[dest + 2] = b;
+                                left_pixel[0] = r;
+                                left_pixel[1] = g;
+                                left_pixel[2] = b;
+                                dest += 3;
+                                src += 3;
+                            }
+                        }
+                        // Recon(x) = Filt(x) + Recon(b)
+                        FilterType::Up => {
+                            if let Some(prev_line) = prev_line {
+                                let mut src2 = prev_line;
+                                for _x in 0..stride {
+                                    buffer[dest] = buffer[src].wrapping_add(buffer[src2]);
+                                    dest += 1;
+                                    src += 1;
+                                    src2 += 1;
+                                }
+                            } else {
+                                for _x in 0..stride {
+                                    buffer[dest] = buffer[src];
+                                    dest += 1;
+                                    src += 1;
+                                }
+                            }
+                        }
+                        // Recon(x) = Filt(x) + floor((Recon(a) + Recon(b)) / 2)
+                        FilterType::Average => {
+                            if let Some(prev_line) = prev_line {
+                                let mut left_pixel = [0; 4];
+                                let mut src2 = prev_line;
+                                for _x in 0..width {
+                                    let r = buffer[src]
+                                        .wrapping_add(average(left_pixel[0], buffer[src2]));
+                                    let g = buffer[src + 1]
+                                        .wrapping_add(average(left_pixel[1], buffer[src2 + 1]));
+                                    let b = buffer[src + 2]
+                                        .wrapping_add(average(left_pixel[2], buffer[src2 + 2]));
+                                    compiler_fence(Ordering::SeqCst);
+                                    buffer[dest] = r;
+                                    buffer[dest + 1] = g;
+                                    buffer[dest + 2] = b;
+                                    left_pixel[0] = r;
+                                    left_pixel[1] = g;
+                                    left_pixel[2] = b;
+                                    dest += 3;
+                                    src += 3;
+                                    src2 += 3;
+                                }
+                            } else {
+                                for _x in 0..stride {
+                                    buffer[dest] = buffer[src];
+                                    dest += 1;
+                                    src += 1;
+                                }
+                            }
+                        }
+                        // Recon(x) = Filt(x) + PaethPredictor(Recon(a), Recon(b), Recon(c))
+                        FilterType::Paeth => {
+                            if let Some(prev_line) = prev_line {
+                                let mut left_pixel = [0; 4];
+                                let mut upper_left = [0; 4];
+                                let mut src2 = prev_line;
+                                for _x in 0..width {
+                                    let (above_r, above_g, above_b) =
+                                        (buffer[src2], buffer[src2 + 1], buffer[src2 + 2]);
+                                    let r = buffer[src].wrapping_add(paeth(
+                                        left_pixel[0],
+                                        above_r,
+                                        upper_left[0],
+                                    ));
+                                    let g = buffer[src + 1].wrapping_add(paeth(
+                                        left_pixel[1],
+                                        above_g,
+                                        upper_left[1],
+                                    ));
+                                    let b = buffer[src + 2].wrapping_add(paeth(
+                                        left_pixel[2],
+                                        above_b,
+                                        upper_left[2],
+                                    ));
+                                    compiler_fence(Ordering::SeqCst);
+                                    buffer[dest] = r;
+                                    buffer[dest + 1] = g;
+                                    buffer[dest + 2] = b;
+                                    left_pixel[0] = r;
+                                    left_pixel[1] = g;
+                                    left_pixel[2] = b;
+                                    upper_left[0] = above_r;
+                                    upper_left[1] = above_g;
+                                    upper_left[2] = above_b;
+                                    dest += 3;
+                                    src += 3;
+                                    src2 += 3;
+                                }
+                            } else {
+                                for _x in 0..stride {
+                                    buffer[dest] = buffer[src];
+                                    dest += 1;
+                                    src += 1;
+                                }
+                            }
+                        }
+                    }
+                    prev_line = Some(this_line);
+                }
+            }
+            NumberOfChannnels::Four => {
+                let mut dest = 0;
+                let mut src = 0;
+                let mut prev_line = Option::<usize>::None;
+                for _y in 0..self.info.height {
+                    let filter_type = buffer[src];
+                    let filter_type =
+                        FilterType::new(filter_type).ok_or(DecodeError::InvalidData)?;
+                    src += 1;
+                    let this_line = dest;
+                    match filter_type {
+                        // Recon(x) = Filt(x)
+                        FilterType::None => {
+                            for _x in 0..stride {
+                                buffer[dest] = buffer[src];
+                                dest += 1;
+                                src += 1;
+                            }
+                        }
+                        // Recon(x) = Filt(x) + Recon(a)
+                        FilterType::Sub => {
+                            let mut left_pixel = [0; 4];
+                            for _x in 0..width {
+                                let r = buffer[src].wrapping_add(left_pixel[0]);
+                                let g = buffer[src + 1].wrapping_add(left_pixel[1]);
+                                let b = buffer[src + 2].wrapping_add(left_pixel[2]);
+                                let a = buffer[src + 3].wrapping_add(left_pixel[3]);
+                                buffer[dest] = r;
+                                buffer[dest + 1] = g;
+                                buffer[dest + 2] = b;
+                                buffer[dest + 3] = a;
+                                left_pixel[0] = r;
+                                left_pixel[1] = g;
+                                left_pixel[2] = b;
+                                left_pixel[3] = a;
+                                dest += 4;
+                                src += 4;
+                            }
+                        }
+                        // Recon(x) = Filt(x) + Recon(b)
+                        FilterType::Up => {
+                            if let Some(prev_line) = prev_line {
+                                let mut src2 = prev_line;
+                                for _x in 0..stride {
+                                    buffer[dest] = buffer[src].wrapping_add(buffer[src2]);
+                                    dest += 1;
+                                    src += 1;
+                                    src2 += 1;
+                                }
+                            } else {
+                                for _x in 0..stride {
+                                    buffer[dest] = buffer[src];
+                                    dest += 1;
+                                    src += 1;
+                                }
+                            }
+                        }
+                        // Recon(x) = Filt(x) + floor((Recon(a) + Recon(b)) / 2)
+                        FilterType::Average => {
+                            if let Some(prev_line) = prev_line {
+                                let mut left_pixel = [0; 4];
+                                let mut src2 = prev_line;
+                                for _x in 0..width {
+                                    let r = buffer[src]
+                                        .wrapping_add(average(left_pixel[0], buffer[src2]));
+                                    let g = buffer[src + 1]
+                                        .wrapping_add(average(left_pixel[1], buffer[src2 + 1]));
+                                    let b = buffer[src + 2]
+                                        .wrapping_add(average(left_pixel[2], buffer[src2 + 2]));
+                                    let a = buffer[src + 3]
+                                        .wrapping_add(average(left_pixel[3], buffer[src2 + 3]));
+                                    compiler_fence(Ordering::SeqCst);
+                                    buffer[dest] = r;
+                                    buffer[dest + 1] = g;
+                                    buffer[dest + 2] = b;
+                                    buffer[dest + 3] = a;
+                                    left_pixel[0] = r;
+                                    left_pixel[1] = g;
+                                    left_pixel[2] = b;
+                                    left_pixel[3] = a;
+                                    dest += 4;
+                                    src += 4;
+                                    src2 += 4;
+                                }
+                            } else {
+                                for _x in 0..stride {
+                                    buffer[dest] = buffer[src];
+                                    dest += 1;
+                                    src += 1;
+                                }
+                            }
+                        }
+                        // Recon(x) = Filt(x) + PaethPredictor(Recon(a), Recon(b), Recon(c))
+                        FilterType::Paeth => {
+                            if let Some(prev_line) = prev_line {
+                                let mut left_pixel = [0; 4];
+                                let mut upper_left = [0; 4];
+                                let mut src2 = prev_line;
+                                for _x in 0..width {
+                                    let (above_r, above_g, above_b, above_a) = (
+                                        buffer[src2],
+                                        buffer[src2 + 1],
+                                        buffer[src2 + 2],
+                                        buffer[src2 + 3],
+                                    );
+                                    let r = buffer[src].wrapping_add(paeth(
+                                        left_pixel[0],
+                                        above_r,
+                                        upper_left[0],
+                                    ));
+                                    let g = buffer[src + 1].wrapping_add(paeth(
+                                        left_pixel[1],
+                                        above_g,
+                                        upper_left[1],
+                                    ));
+                                    let b = buffer[src + 2].wrapping_add(paeth(
+                                        left_pixel[2],
+                                        above_b,
+                                        upper_left[2],
+                                    ));
+                                    let a = buffer[src + 3].wrapping_add(paeth(
+                                        left_pixel[3],
+                                        above_a,
+                                        upper_left[3],
+                                    ));
+                                    compiler_fence(Ordering::SeqCst);
+                                    buffer[dest] = r;
+                                    buffer[dest + 1] = g;
+                                    buffer[dest + 2] = b;
+                                    buffer[dest + 3] = a;
+                                    left_pixel[0] = r;
+                                    left_pixel[1] = g;
+                                    left_pixel[2] = b;
+                                    left_pixel[3] = a;
+                                    upper_left[0] = above_r;
+                                    upper_left[1] = above_g;
+                                    upper_left[2] = above_b;
+                                    upper_left[3] = above_a;
+                                    dest += 4;
+                                    src += 4;
+                                    src2 += 4;
+                                }
+                            } else {
+                                for _x in 0..stride {
+                                    buffer[dest] = buffer[src];
+                                    dest += 1;
+                                    src += 1;
+                                }
+                            }
+                        }
+                    }
+                    prev_line = Some(this_line);
+                }
+            }
+        }
+
+        unsafe {
+            buffer.set_len(stride * self.info.height as usize);
+        }
+        // buffer.truncate(stride * self.info.height as usize);
+
+        Ok(buffer)
     }
 }
 

@@ -24,7 +24,7 @@ compress.workspace = true
 
 [workspace.dependencies]
 # compress = { path = "../compress" }
-compress = { git = "https://github.com/neri/compress.git", rev = "d95e849c1a3044932328778f8834b875bf298665" }
+compress = { git = "https://github.com/neri/compress.git", rev = "fbf52c474557f641418acdf17a3234500b517de6" }
 
 # [profile.release]
 # debug = true

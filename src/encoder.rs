@@ -6,6 +6,7 @@ use compress::entropy::entropy_of_blocks;
 
 pub type PngEncoder = CustomPngEncoder<DefaultDeflateEncoder>;
 
+/// Interface to implement deflate decompression function
 pub trait DeflateEncoder {
     fn deflate(input: &[u8], level: CompressionLevel) -> Result<Vec<u8>, EncodeError>;
 }
@@ -16,7 +17,7 @@ pub struct CustomPngEncoder<DE: DeflateEncoder> {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum CompressionLevel {
-    /// Fast compression,
+    /// Encodes as fast as possible. Format conversion is also minimized.
     Fast,
     /// Default compression level, usually balanced between speed and size.
     Default,
@@ -49,18 +50,20 @@ impl<DE: DeflateEncoder> CustomPngEncoder<DE> {
     ///
     /// This function will attempt to generate an indexed PNG if the image is suitable for it.
     pub fn encode(image: &ImageData, level: CompressionLevel) -> Result<Vec<u8>, EncodeError> {
-        let info = image.info();
-        if image.data.len()
-            < info.width as usize * info.height as usize * info.image_type.n_channels() as usize
-        {
-            return Err(EncodeError::InvalidInput);
-        }
         if level == CompressionLevel::Fast {
             return Self::encode_as_is(image, level);
         }
-        if info.image_type == ImageType::Indexed {
+        let info = image.info();
+        if info.color_type == ColorType::Indexed {
             let palette = image.palette().ok_or(EncodeError::InvalidInput)?;
             return Self::encode_indexed(info.width, info.height, &image.data, palette, level);
+        }
+        if info.width == 0
+            || info.height == 0
+            || image.data.len()
+                < info.width as usize * info.height as usize * info.color_type.n_channels() as usize
+        {
+            return Err(EncodeError::InvalidInput);
         }
 
         if let Some((palette, is_gray)) = attempt_to_generate_palette(&image) {
@@ -85,39 +88,42 @@ impl<DE: DeflateEncoder> CustomPngEncoder<DE> {
         Self::encode_as_is(image, level)
     }
 
-    /// Encodes as-is in the input data format.
+    /// Encode to PNG as input format.
     pub fn encode_as_is(
         image: &ImageData,
         level: CompressionLevel,
     ) -> Result<Vec<u8>, EncodeError> {
         let info = image.info();
-        if image.data.len()
-            < info.width as usize * info.height as usize * info.image_type.n_channels() as usize
-        {
-            return Err(EncodeError::InvalidInput);
-        }
-        if info.image_type == ImageType::Indexed {
+        if info.color_type == ColorType::Indexed {
             let palette = image.palette().ok_or(EncodeError::InvalidInput)?;
             return Self::encode_indexed(info.width, info.height, &image.data, palette, level);
+        }
+        if info.width == 0
+            || info.height == 0
+            || image.data.len()
+                < info.width as usize * info.height as usize * info.color_type.n_channels() as usize
+        {
+            return Err(EncodeError::InvalidInput);
         }
 
         Self::generate_png(
             info.width,
             info.height,
             &Self::generate_idat(
-                info.width as usize * info.image_type.n_channels() as usize,
+                info.width as usize * info.color_type.n_channels() as usize,
                 info.height,
                 image.data,
-                info.image_type.n_channels(),
+                info.color_type.n_channels(),
                 level,
                 false,
             )?,
             None,
             BitDepth::Eight,
-            info.image_type,
+            info.color_type,
         )
     }
 
+    /// Encodes to PNG with index color.
     pub fn encode_indexed(
         width: u32,
         height: u32,
@@ -125,12 +131,12 @@ impl<DE: DeflateEncoder> CustomPngEncoder<DE> {
         palette: &[RGB888],
         level: CompressionLevel,
     ) -> Result<Vec<u8>, EncodeError> {
-        if data.len() < width as usize * height as usize {
+        if width == 0 || height == 0 || data.len() < width as usize * height as usize {
             return Err(EncodeError::InvalidInput);
         }
         let max_data = data.iter().copied().max().unwrap_or(0);
         if max_data as usize >= palette.len() {
-            return Err(EncodeError::InvalidData);
+            return Err(EncodeError::InvalidInput);
         }
         let bits = index_color_bits(max_data);
         let (stride, data) = match bits {
@@ -200,7 +206,7 @@ impl<DE: DeflateEncoder> CustomPngEncoder<DE> {
             &idat,
             Some(palette),
             bits,
-            ImageType::Indexed,
+            ColorType::Indexed,
         )
     }
 
@@ -219,7 +225,6 @@ impl<DE: DeflateEncoder> CustomPngEncoder<DE> {
                 new_data.push(FilterType::None as u8);
                 new_data.extend_from_slice(line);
             }
-            DE::deflate(&new_data, level)
         } else {
             let mut prev_line = None;
             for current_line in data.chunks_exact(stride) {
@@ -229,8 +234,8 @@ impl<DE: DeflateEncoder> CustomPngEncoder<DE> {
                 new_data.extend_from_slice(&new_line);
                 prev_line = Some(current_line);
             }
-            DE::deflate(&new_data, level)
         }
+        DE::deflate(&new_data, level)
     }
 
     /// Processes a single scanline of image data with various filters and selects the best one based on entropy.
@@ -340,7 +345,7 @@ impl<DE: DeflateEncoder> CustomPngEncoder<DE> {
         data: &[u8],
         palette: Option<&[RGB888]>,
         bit_depth: BitDepth,
-        color_type: ImageType,
+        color_type: ColorType,
     ) -> Result<Vec<u8>, EncodeError> {
         let mut output = Vec::new();
         output.extend_from_slice(PNG_SIGNATURE);

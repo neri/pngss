@@ -3,7 +3,6 @@
 use base64::prelude::*;
 use pngss::{BitDepth, DeflateDecoder};
 use std::{
-    borrow::Cow,
     env::{self, args},
     fs::File,
     io::{Read, Write},
@@ -11,11 +10,12 @@ use std::{
 };
 
 enum FilterMode {
-    None,
+    Raw,
     Filter,
+    Decoded,
 }
 
-enum Mode {
+enum DumpMode {
     Hex,
     Bin,
     Base64,
@@ -25,17 +25,19 @@ fn main() {
     let mut args = args();
     let _ = args.next().unwrap();
 
-    let mut mode = Mode::Hex;
-    let mut filter_mode = FilterMode::None;
+    let mut dump_mode = DumpMode::Hex;
+    let mut filter_mode = FilterMode::Raw;
     let mut path_input = None;
     let mut path_output = None;
     while let Some(arg) = args.next() {
         if arg.starts_with("-") {
             match arg.as_str() {
-                "-bin" => mode = Mode::Bin,
-                "-hex" => mode = Mode::Hex,
-                "-base64" => mode = Mode::Base64,
+                "-bin" => dump_mode = DumpMode::Bin,
+                "-hex" => dump_mode = DumpMode::Hex,
+                "-b64" | "-base64" => dump_mode = DumpMode::Base64,
+                "-raw" => filter_mode = FilterMode::Raw,
                 "-filter" => filter_mode = FilterMode::Filter,
+                "-decoded" => filter_mode = FilterMode::Decoded,
                 "-o" => match args.next() {
                     Some(v) => path_output = Some(v),
                     None => usage(),
@@ -69,14 +71,18 @@ fn main() {
         .get_idat_chunks(false)
         .expect("cannot get IDAT chunks");
     let buffer_size = decoder.decoded_buffer_size();
-    let inflated =
-        pngss::DefaultDeflateDecoder::inflate(&idat, buffer_size).expect("inflate failed");
 
     let mut filter_stats = [0; 5];
-    let buff: Cow<[u8]> = match filter_mode {
-        FilterMode::None => Cow::Borrowed(&inflated),
+    let buff = match filter_mode {
+        FilterMode::Raw => {
+            let inflated =
+                pngss::DefaultDeflateDecoder::inflate(&idat, buffer_size).expect("inflate failed");
+            inflated
+        }
         FilterMode::Filter => {
-            let n_channels = info.image_type.n_channels().as_usize();
+            let inflated =
+                pngss::DefaultDeflateDecoder::inflate(&idat, buffer_size).expect("inflate failed");
+            let n_channels = info.color_type.n_channels().as_usize();
             let stride = 1 + if info.bit_depth > BitDepth::Eight {
                 info.width as usize * n_channels
             } else {
@@ -88,16 +94,26 @@ fn main() {
                 filter_stats[filter_type as usize] += 1;
                 filters.push(filter_type);
             }
-            filters.into()
+            filters
+        }
+        FilterMode::Decoded => {
+            let decoded = decoder.decode().expect("cannot decode PNG data");
+            decoded.raw_data().to_vec()
         }
     };
 
-    match mode {
-        Mode::Hex => {
-            println!("# PNG {:?} IDAT {} <= {}", info, inflated.len(), idat.len(),);
+    match dump_mode {
+        DumpMode::Hex => {
+            println!(
+                "# PNG {:?} IDAT {} <= {} ({:.02}%)",
+                info,
+                idat.len(),
+                buffer_size,
+                idat.len() as f64 / buffer_size as f64 * 100.0,
+            );
             if matches!(filter_mode, FilterMode::Filter) {
                 println!(
-                    "# Filter stats: None {} Sub {} Up {} Avg {} Paeth {}",
+                    "# Filter stats: None(0) {} Sub(1) {} Up(2) {} Avg(3) {} Paeth(4) {}",
                     filter_stats[0],
                     filter_stats[1],
                     filter_stats[2],
@@ -119,12 +135,12 @@ fn main() {
                 println!("");
             }
         }
-        Mode::Bin => {
+        DumpMode::Bin => {
             let mut stdout = std::io::stdout();
             stdout.write(&buff).unwrap();
             stdout.flush().unwrap();
         }
-        Mode::Base64 => {
+        DumpMode::Base64 => {
             let base64_data = BASE64_STANDARD.encode(&buff);
             println!("{}", base64_data);
         }
@@ -135,8 +151,12 @@ fn usage() -> ! {
     let mut args = env::args_os();
     let arg = args.next().unwrap();
     eprintln!(
-        "IDAT dumper\nusage: {} [-hex|-bin|-base64] INPUT",
+        "IDAT dumper\n\nusage: {} [mode] [-hex|-bin|-b64] INPUT\n",
         arg.to_str().unwrap()
     );
+    eprintln!("Modes:");
+    eprintln!("  -raw       Decompress IDAT chunks and dump them as is (default)");
+    eprintln!("  -filter    Decompress IDAT chunks to show only filter types");
+    eprintln!("  -decoded   Dumps the final decoding results of the image data");
     process::exit(1);
 }
