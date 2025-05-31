@@ -210,12 +210,8 @@ impl ImageDataOwned {
     ///
     /// The `raw_data` value will be a byte array representing the index of the palette array, regardless of bit depth.
     #[inline]
-    pub fn palette<'a>(&'a self) -> Option<&'a [RGB888]> {
-        if self.info.color_type == ColorType::Indexed {
-            Some(self.palette.as_ref())
-        } else {
-            None
-        }
+    pub fn palette(&self) -> Option<&[RGB888]> {
+        (self.info.color_type == ColorType::Indexed).then(|| self.palette.as_ref())
     }
 
     /// Return image data in raw format.
@@ -228,30 +224,28 @@ impl ImageDataOwned {
 
     /// Returns an iterator that converts all pixels to RGBA.
     #[inline]
-    pub fn all_pixels<'b>(&'b self) -> Box<dyn Iterator<Item = color::RGBA8888> + 'b> {
-        self.info
-            .color_type
-            .iter(self.data.as_slice(), self.palette.as_ref())
+    pub fn all_pixels<'a>(&'a self) -> Box<dyn Iterator<Item = color::RGBA8888> + 'a> {
+        self.info.color_type.iter(&self.data, self.palette.as_ref())
     }
 
     /// Return image data in RGBA format.
     ///
     /// If another format is used, it will be converted.
     #[inline]
-    pub fn to_rgba_bytes<'b>(&'b self) -> RgbaBytes<'b> {
+    pub fn to_rgba_bytes<'a>(&'a self) -> RgbaBytes<'a> {
         self.info
             .color_type
-            .to_rgba_bytes(self.data.as_slice(), self.palette.as_ref())
+            .to_rgba_bytes(&self.data, self.palette.as_ref())
     }
 
     /// Return image data in RGB format.
     ///
     /// If another format is used, it will be converted.
     #[inline]
-    pub fn to_rgb_bytes<'b>(&'b self) -> RgbBytes<'b> {
+    pub fn to_rgb_bytes<'a>(&'a self) -> RgbBytes<'a> {
         self.info
             .color_type
-            .to_rgb_bytes(self.data.as_slice(), self.palette.as_ref())
+            .to_rgb_bytes(&self.data, self.palette.as_ref())
     }
 }
 
@@ -287,11 +281,7 @@ impl<'a> ImageData<'a> {
     /// The `raw_data` value will be a byte array representing the index of the palette array, regardless of bit depth.
     #[inline]
     pub fn palette(&self) -> Option<&'a [RGB888]> {
-        if self.info.color_type == ColorType::Indexed {
-            Some(self.palette)
-        } else {
-            None
-        }
+        (self.info.color_type == ColorType::Indexed).then(|| self.palette)
     }
 
     /// Return image data in raw format.

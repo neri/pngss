@@ -1,4 +1,4 @@
-//! An implementation of PNG Encoder and Decoder
+//! A subset implementation of PNG Encoder and Decoder
 //!
 //! ## Features
 //!
@@ -7,6 +7,7 @@
 //! * It generally provides sufficient functionality for most applications, but some features are not supported.
 //!
 //! See also: <https://www.w3.org/TR/png/>
+//!
 
 #![cfg_attr(not(test), no_std)]
 
@@ -35,7 +36,11 @@ pub const IHDR_SIZE: usize = 13;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DecodeError {
+    /// No valid PNG signature found in the input data.
+    BadSignature,
+    /// The PNG file is corrupted or contains invalid data.
     InvalidData,
+    /// The PNG file contains unsupported features or formats.
     UnsupportedFormat,
 }
 

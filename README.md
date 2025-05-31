@@ -1,4 +1,4 @@
-# pngss: An implementation of PNG Encoder and Decoder
+# pngss: A subset implementation of PNG Encoder and Decoder
 
 ## Features
 
@@ -10,7 +10,7 @@
 
 ### MSRV
 
-* The latest version is recommended whenever possible.
+* Undetermined, The latest version is recommended whenever possible.
 
 ### Supported features
 

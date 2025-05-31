@@ -1,4 +1,4 @@
-//! An implementation of PNG Encoder
+//! A subset implementation of PNG Encoder
 
 use super::*;
 use alloc::collections::BTreeMap;

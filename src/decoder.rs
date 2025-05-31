@@ -1,7 +1,10 @@
-//! An implementation of PNG Decoder
+//! A subset implementation of PNG Decoder
 
 use super::*;
-use core::sync::atomic::{Ordering, compiler_fence};
+use core::{
+    marker::PhantomData,
+    sync::atomic::{Ordering, compiler_fence},
+};
 
 pub type PngDecoder<'a> = CustomPngDecoder<'a, DefaultDeflateDecoder>;
 
@@ -13,7 +16,7 @@ pub trait DeflateDecoder {
 pub struct CustomPngDecoder<'a, DD: DeflateDecoder> {
     slice: &'a [u8],
     info: ImageInfo,
-    _phantom: core::marker::PhantomData<DD>,
+    _phantom: PhantomData<DD>,
 }
 
 /// Wrapper for the inflate function used internally.
@@ -32,10 +35,10 @@ impl<'a, DD: DeflateDecoder> CustomPngDecoder<'a, DD> {
     ///
     /// Returns an error if the signature is invalid, if the IHDR chunk does not exist, or if it has unsupported information.
     pub fn new(input: &'a [u8]) -> Result<Self, DecodeError> {
-        let (signature, next) = input.split_at_checked(8).ok_or(DecodeError::InvalidData)?;
+        let (signature, next) = input.split_at_checked(8).ok_or(DecodeError::BadSignature)?;
         if signature != PNG_SIGNATURE {
             // PNG signature must be the first 8 bytes.
-            return Err(DecodeError::InvalidData);
+            return Err(DecodeError::BadSignature);
         }
 
         let (ihdr, next) = next
@@ -94,7 +97,7 @@ impl<'a, DD: DeflateDecoder> CustomPngDecoder<'a, DD> {
         Ok(Self {
             slice: next,
             info,
-            _phantom: core::marker::PhantomData,
+            _phantom: PhantomData,
         })
     }
 
@@ -801,6 +804,12 @@ impl<'a, DD: DeflateDecoder> CustomPngDecoder<'a, DD> {
         // buffer.truncate(stride * self.info.height as usize);
 
         Ok(buffer)
+    }
+}
+
+impl<DD: DeflateDecoder> core::fmt::Debug for CustomPngDecoder<'_, DD> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "PngDecoder({:?})", self.info)
     }
 }
 
