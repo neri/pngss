@@ -52,7 +52,6 @@ fn instantiate() {
     assert_eq!(decoder.info().width, 8);
     assert_eq!(decoder.info().height, 8);
     assert_eq!(decoder.info().color_type, ColorType::RGB);
-    assert_eq!(decoder.info().bit_depth, BitDepth::Eight);
 
     let data = &[0x00, 0x00, 0x00, 0x00];
     let result = PngDecoder::new(data);

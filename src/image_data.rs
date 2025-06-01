@@ -20,7 +20,6 @@ pub struct ImageData<'a> {
 pub struct ImageInfo {
     pub width: u32,
     pub height: u32,
-    pub bit_depth: BitDepth,
     pub color_type: ColorType,
 }
 
@@ -148,6 +147,26 @@ impl ColorType {
         }
     }
 
+    pub fn into_rgba_bytes<'a>(&self, input: Vec<u8>, palette: &[RGB888]) -> RgbaBytes<'a> {
+        match self {
+            Self::RGBA => {
+                // No conversion needed
+                RgbaBytes(Cow::Owned(input))
+            }
+            _ => {
+                // Convert to RGBA
+                let mut output = Vec::with_capacity(input.len() / self.n_channels().as_usize() * 4);
+                for rgba in self.iter(&input, palette) {
+                    output.push(rgba.r());
+                    output.push(rgba.g());
+                    output.push(rgba.b());
+                    output.push(rgba.a());
+                }
+                RgbaBytes(Cow::Owned(output))
+            }
+        }
+    }
+
     pub fn to_rgb_bytes<'a>(&self, input: &'a [u8], palette: &[RGB888]) -> RgbBytes<'a> {
         match self {
             Self::RGB => {
@@ -158,6 +177,25 @@ impl ColorType {
                 // Convert to RGB
                 let mut output = Vec::with_capacity(input.len() / self.n_channels().as_usize() * 3);
                 for rgba in self.iter(input, palette) {
+                    output.push(rgba.r());
+                    output.push(rgba.g());
+                    output.push(rgba.b());
+                }
+                RgbBytes(Cow::Owned(output))
+            }
+        }
+    }
+
+    pub fn into_rgb_bytes<'a>(&self, input: Vec<u8>, palette: &[RGB888]) -> RgbBytes<'a> {
+        match self {
+            Self::RGB => {
+                // No conversion needed
+                RgbBytes(Cow::Owned(input))
+            }
+            _ => {
+                // Convert to RGB
+                let mut output = Vec::with_capacity(input.len() / self.n_channels().as_usize() * 3);
+                for rgba in self.iter(&input, palette) {
                     output.push(rgba.r());
                     output.push(rgba.g());
                     output.push(rgba.b());
@@ -238,6 +276,16 @@ impl ImageDataOwned {
             .to_rgba_bytes(&self.data, self.palette.as_ref())
     }
 
+    /// Return image data in RGBA format.
+    ///
+    /// If another format is used, it will be converted.
+    #[inline]
+    pub fn into_rgba_bytes<'a>(self) -> RgbaBytes<'a> {
+        self.info
+            .color_type
+            .into_rgba_bytes(self.data, self.palette.as_ref())
+    }
+
     /// Return image data in RGB format.
     ///
     /// If another format is used, it will be converted.
@@ -246,6 +294,16 @@ impl ImageDataOwned {
         self.info
             .color_type
             .to_rgb_bytes(&self.data, self.palette.as_ref())
+    }
+
+    /// Return image data in RGB format.
+    ///
+    /// If another format is used, it will be converted.
+    #[inline]
+    pub fn into_rgb_bytes<'a>(self) -> RgbBytes<'a> {
+        self.info
+            .color_type
+            .into_rgb_bytes(self.data, self.palette.as_ref())
     }
 }
 
@@ -261,7 +319,6 @@ impl<'a> ImageData<'a> {
         let info = ImageInfo {
             width,
             height,
-            bit_depth: BitDepth::Eight,
             color_type,
         };
         Self {

@@ -6,6 +6,7 @@ use core::{
     sync::atomic::{Ordering, compiler_fence},
 };
 
+/// Default PNG decoder using the default deflate decoder.
 pub type PngDecoder<'a> = CustomPngDecoder<'a, DefaultDeflateDecoder>;
 
 /// Interface to implement the inflate (deflate decompression) function
@@ -16,10 +17,12 @@ pub trait DeflateDecoder {
 pub struct CustomPngDecoder<'a, DD: DeflateDecoder> {
     slice: &'a [u8],
     info: ImageInfo,
+    bit_depth: BitDepth,
     _phantom: PhantomData<DD>,
 }
 
 /// Wrapper for the inflate function used internally.
+///
 /// It may be replaced by another implementation in the future.
 pub struct DefaultDeflateDecoder;
 
@@ -90,13 +93,13 @@ impl<'a, DD: DeflateDecoder> CustomPngDecoder<'a, DD> {
         let info = ImageInfo {
             width,
             height,
-            bit_depth,
             color_type,
         };
 
         Ok(Self {
             slice: next,
             info,
+            bit_depth,
             _phantom: PhantomData,
         })
     }
@@ -118,7 +121,7 @@ impl<'a, DD: DeflateDecoder> CustomPngDecoder<'a, DD> {
                 idat_count += 1;
                 idat_size += chunk.len();
             }
-            if chunk.is_iend() {
+            if chunk.is_valid_iend() {
                 break;
             }
         }
@@ -134,6 +137,12 @@ impl<'a, DD: DeflateDecoder> CustomPngDecoder<'a, DD> {
     #[inline]
     pub fn info(&self) -> &ImageInfo {
         &self.info
+    }
+
+    /// Returns the bit depth of the image.
+    #[inline]
+    pub fn bit_depth(&self) -> BitDepth {
+        self.bit_depth
     }
 
     /// Returns the size of the buffer required to decompress IDAT chunks.
@@ -186,10 +195,10 @@ impl<'a, DD: DeflateDecoder> CustomPngDecoder<'a, DD> {
         let mut reconstructed = self.apply_filter(buffer)?;
 
         // fix bit depth less than 8
-        if self.info.bit_depth < BitDepth::Eight {
+        if self.bit_depth < BitDepth::Eight {
             let mut fixed =
                 Vec::with_capacity(self.info.width as usize * self.info.height as usize);
-            match self.info.bit_depth {
+            match self.bit_depth {
                 BitDepth::One => {
                     let mut iter = reconstructed.iter();
                     let iter = &mut iter;
@@ -276,12 +285,10 @@ impl<'a, DD: DeflateDecoder> CustomPngDecoder<'a, DD> {
     #[inline(always)]
     fn apply_filter(&self, mut buffer: Vec<u8>) -> Result<Vec<u8>, DecodeError> {
         let width = self.info.width as usize;
-        let stride = if self.info.bit_depth > BitDepth::Eight {
+        let stride = if self.bit_depth > BitDepth::Eight {
             width as usize * self.info.color_type.n_channels() as usize
         } else {
-            (width as usize
-                * self.info.color_type.n_channels() as usize
-                * self.info.bit_depth as usize
+            (width as usize * self.info.color_type.n_channels() as usize * self.bit_depth as usize
                 + 7)
                 / 8
         };
@@ -929,6 +936,6 @@ impl<'a> Iterator for PngChunks<'a> {
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
         let chunk = self.inner.next_chunk().unwrap();
-        (!chunk.is_iend()).then(|| chunk)
+        (!chunk.is_valid_iend()).then(|| chunk)
     }
 }

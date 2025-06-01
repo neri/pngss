@@ -4,6 +4,7 @@ use super::*;
 use alloc::collections::BTreeMap;
 use compress::entropy::entropy_of_blocks;
 
+/// Default PNG encoder using the default deflate implementation.
 pub type PngEncoder = CustomPngEncoder<DefaultDeflateEncoder>;
 
 /// Interface to implement deflate decompression function
@@ -26,6 +27,7 @@ pub enum CompressionLevel {
 }
 
 /// Wrapper for the deflate function used internally.
+///
 /// It may be replaced by another implementation in the future.
 pub struct DefaultDeflateEncoder;
 

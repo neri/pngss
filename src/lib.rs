@@ -92,7 +92,7 @@ impl<'a> PngChunk<'a> {
     }
 
     #[inline]
-    pub const fn is_iend(&self) -> bool {
+    pub const fn is_valid_iend(&self) -> bool {
         matches!(self.chunk_type, FourCC::IEND) && self.crc == 0xae426082
     }
 
@@ -123,6 +123,13 @@ impl Be32 {
     #[inline]
     pub const fn as_u32(&self) -> u32 {
         u32::from_be_bytes(self.0)
+    }
+}
+
+impl From<Be32> for u32 {
+    #[inline]
+    fn from(value: Be32) -> Self {
+        value.as_u32()
     }
 }
 

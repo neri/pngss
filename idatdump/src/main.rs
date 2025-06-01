@@ -83,10 +83,10 @@ fn main() {
             let inflated =
                 pngss::DefaultDeflateDecoder::inflate(&idat, buffer_size).expect("inflate failed");
             let n_channels = info.color_type.n_channels().as_usize();
-            let stride = 1 + if info.bit_depth > BitDepth::Eight {
+            let stride = 1 + if decoder.bit_depth() > BitDepth::Eight {
                 info.width as usize * n_channels
             } else {
-                (info.width as usize * n_channels * info.bit_depth as usize + 7) / 8
+                (info.width as usize * n_channels * decoder.bit_depth() as usize + 7) / 8
             };
             let mut filters = Vec::new();
             for line in inflated.chunks_exact(stride) {
