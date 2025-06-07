@@ -4,7 +4,7 @@
 
 * Pure Rust Implementation
 * Support for `no_std`
-* It generally provides sufficient functionality for most applications, but some features are not supported.
+* It generally provides sufficient functionality for most applications, but some features are not supported. See section below.
 * The default deflate library uses our implementation. We are constantly improving it, but if you are not satisfied with its performance, you can implement a custom class to replace it with another implementation. See also `DeflateDecoder` or `DeflateEncoder`.
 * The detailed specifications are subject to change as it is still under development.
 
@@ -20,11 +20,12 @@
 |PLTE chunk|✅|
 |IDAT chunk|✅|
 |IEND chunk|✅|
+|other chunks|ignored|
 |8bit depth color|✅|
 |16bit depth color|-|
 |Interlace|-|
 |Color space|-|
-|CRC check|-|
+|CRC validation|-|
 
 ## Example Apps
 
@@ -51,8 +52,8 @@ $ cargo run -p idatdump -- [MODE] [OPTIONS] [--] FILE_NAME
 
 ### Options:
 
-* `-hex`    Show hex dump **(default)**
-* `-bin`    Show binary
+* `-hex`    Show in hex **(default)**
+* `-bin`    Show in binary
 * `-b64`    Show in base64
 
 ## References

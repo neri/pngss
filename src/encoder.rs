@@ -349,6 +349,10 @@ impl<DE: DeflateEncoder> CustomPngEncoder<DE> {
         bit_depth: BitDepth,
         color_type: ColorType,
     ) -> Result<Vec<u8>, EncodeError> {
+        if width == 0 || height == 0 {
+            return Err(EncodeError::InvalidInput);
+        }
+
         let mut output = Vec::new();
         output.extend_from_slice(PNG_SIGNATURE);
 
