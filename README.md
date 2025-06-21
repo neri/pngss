@@ -26,10 +26,11 @@
 |Interlace|-|
 |Color space|-|
 |CRC validation|-|
+|checksum|-|
 
 ## Example Apps
 
-### /viewer: Image Viewer
+### /examples/viewer: Image Viewer
 
 * An example application to display PNG files using `embedded-graphics`
 
@@ -37,7 +38,7 @@
 $ cargo run -p viewer FILE_NAME
 ```
 
-## /idatdump: IDAT dumper
+## /examples/idatdump: IDAT dumper
 
 * An example application showing the contents of IDAT chunks
 
@@ -58,7 +59,7 @@ $ cargo run -p idatdump -- [MODE] [OPTIONS] [--] FILE_NAME
 
 ## References
 
-* https://www.w3.org/TR/png/
+* [Portable Network Graphics (PNG) Specification](https://www.w3.org/TR/png/)
 
 ## LICENSE
 

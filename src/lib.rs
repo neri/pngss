@@ -79,12 +79,16 @@ impl<'a> PngChunk<'a> {
         self.chunk_type
     }
 
+    /// Returns the value of CRC.
+    ///
+    /// The value may not be valid.
     #[inline]
     pub const fn crc(&self) -> u32 {
         self.crc
     }
 
-    pub fn compute_crc(&self) -> u32 {
+    /// Compute a valid CRC value from the current chunk contents.
+    pub fn compute_valid_crc(&self) -> u32 {
         let mut crc = crc::CRC::new();
         crc.update(&self.chunk_type.0);
         crc.update(self.data);
@@ -101,11 +105,14 @@ impl<'a> PngChunk<'a> {
         self.data
     }
 
+    /// Writes the contents of the current chunk to the specified buffer.
+    ///
+    /// The CRC is automatically calculated with the current contents.
     pub fn write_to(&self, buf: &mut Vec<u8>) {
         buf.extend_from_slice(&(self.len() as u32).to_be_bytes());
         buf.extend_from_slice(&self.chunk_type.0);
         buf.extend_from_slice(self.data);
-        buf.extend_from_slice(&self.compute_crc().to_be_bytes());
+        buf.extend_from_slice(&self.compute_valid_crc().to_be_bytes());
     }
 }
 
