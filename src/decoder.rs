@@ -145,13 +145,25 @@ impl<'a, DD: DeflateDecoder> CustomPngDecoder<'a, DD> {
         self.bit_depth
     }
 
+    /// Returns the stride (byte width) of a single row of the decoded data.
+    ///
+    /// Equals to `1 + (width * n_channels * bit_depth + 7) / 8`
+    #[inline]
+    pub fn decoded_buffer_stride(&self) -> usize {
+        let width_chan = self.info.width as usize * self.info.color_type.n_channels() as usize;
+        1 + if self.bit_depth() == BitDepth::Eight {
+            width_chan
+        } else {
+            (width_chan * self.bit_depth() as usize + 7) / 8
+        }
+    }
+
     /// Returns the size of the buffer required to decompress IDAT chunks.
     ///
-    /// Equals to `(1 + width * n_channels) * height`
+    /// Equals to `decoded_buffer_stride * height`
     #[inline]
     pub fn decoded_buffer_size(&self) -> usize {
-        (1 + self.info.width as usize * self.info.color_type.n_channels() as usize)
-            * self.info.height as usize
+        self.decoded_buffer_stride() * self.info.height as usize
     }
 
     /// Decodes PNG images and returns image data.
@@ -189,10 +201,10 @@ impl<'a, DD: DeflateDecoder> CustomPngDecoder<'a, DD> {
         let data = chunks.get_idat_chunks(true)?;
 
         // Decompress the IDAT data
-        let buffer = DD::inflate(&data, self.decoded_buffer_size())?;
+        let data = DD::inflate(&data, self.decoded_buffer_size())?;
 
         // Apply filters
-        let mut reconstructed = self.apply_filter(buffer)?;
+        let mut reconstructed = self.apply_filter(data)?;
 
         // fix bit depth less than 8
         if self.bit_depth < BitDepth::Eight {
@@ -285,13 +297,7 @@ impl<'a, DD: DeflateDecoder> CustomPngDecoder<'a, DD> {
     #[inline(always)]
     fn apply_filter(&self, mut buffer: Vec<u8>) -> Result<Vec<u8>, DecodeError> {
         let width = self.info.width as usize;
-        let stride = if self.bit_depth > BitDepth::Eight {
-            width as usize * self.info.color_type.n_channels() as usize
-        } else {
-            (width as usize * self.info.color_type.n_channels() as usize * self.bit_depth as usize
-                + 7)
-                / 8
-        };
+        let stride = self.decoded_buffer_stride() - 1;
 
         match self.info.color_type.n_channels() {
             NumberOfChannnels::One => {
@@ -919,10 +925,7 @@ impl<'a> PngChunks<'a> {
                     unreachable!()
                 }
             } else {
-                if data.is_some() {
-                    unreachable!()
-                }
-                data = Some(Cow::Borrowed(chunk.data()));
+                return Ok(Cow::Borrowed(chunk.data()));
             }
         }
 

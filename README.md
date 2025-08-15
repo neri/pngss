@@ -22,11 +22,11 @@
 |IEND chunk|✅|
 |other chunks|ignored|
 |8bit depth color|✅|
-|16bit depth color|-|
-|Interlace|-|
-|Color space|-|
-|CRC validation|-|
-|checksum|-|
+|16bit depth color|NOT SUPPORTED|
+|Interlace|NOT SUPPORTED|
+|Color adjustment|ignored|
+|CRC validation|ignored|
+|checksum|ignored|
 
 ## Example Apps
 

@@ -1,7 +1,7 @@
 //! IDAT dumper
 
 use base64::prelude::*;
-use pngss::{BitDepth, DeflateDecoder};
+use pngss::DeflateDecoder;
 use std::{
     env::{self, args},
     fs::File,
@@ -82,14 +82,8 @@ fn main() {
         FilterMode::Filter => {
             let inflated =
                 pngss::DefaultDeflateDecoder::inflate(&idat, buffer_size).expect("inflate failed");
-            let n_channels = info.color_type.n_channels().as_usize();
-            let stride = 1 + if decoder.bit_depth() > BitDepth::Eight {
-                info.width as usize * n_channels
-            } else {
-                (info.width as usize * n_channels * decoder.bit_depth() as usize + 7) / 8
-            };
             let mut filters = Vec::new();
-            for line in inflated.chunks_exact(stride) {
+            for line in inflated.chunks_exact(decoder.decoded_buffer_stride()) {
                 let filter_type = line[0];
                 filter_stats[filter_type as usize] += 1;
                 filters.push(filter_type);
