@@ -3,7 +3,7 @@ name = "pngss"
 version = "0.1.0"
 edition = "2024"
 
-# description = "A subset implementation of the PNG decoder"
+# description = "A subset implementation of PNG Encoder and Decoder"
 # readme = "README.md"
 # documentation = "https://neri.github.io/pngss/pngss/"
 # homepage = "https://github.com/neri/pngss"
@@ -15,7 +15,7 @@ edition = "2024"
 #     "/.github/",
 #     ".gitignore",
 #     "/temp/",
-#     "/samples/",
+#     "/examples/",
 # ]
 
 [dependencies]

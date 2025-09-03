@@ -51,7 +51,7 @@ impl<DE: DeflateEncoder> CustomPngEncoder<DE> {
     /// Encodes the image data into PNG format.
     ///
     /// This function will attempt to generate an indexed PNG if the image is suitable for it.
-    pub fn encode(image: &ImageData, level: CompressionLevel) -> Result<Vec<u8>, EncodeError> {
+    pub fn encode(image: &ImageDataRef, level: CompressionLevel) -> Result<Vec<u8>, EncodeError> {
         if level == CompressionLevel::Fast {
             return Self::encode_as_is(image, level);
         }
@@ -92,7 +92,7 @@ impl<DE: DeflateEncoder> CustomPngEncoder<DE> {
 
     /// Encode to PNG as input format.
     pub fn encode_as_is(
-        image: &ImageData,
+        image: &ImageDataRef,
         level: CompressionLevel,
     ) -> Result<Vec<u8>, EncodeError> {
         let info = image.info();
@@ -386,7 +386,7 @@ impl<DE: DeflateEncoder> CustomPngEncoder<DE> {
 /// Attempts to generate a palette from the image data.
 ///
 /// Returns a tuple containing the palette and a boolean indicating if the palette is grayscale.
-pub fn attempt_to_generate_palette(image: &ImageData) -> Option<(Vec<RGB888>, bool)> {
+pub fn attempt_to_generate_palette(image: &ImageDataRef) -> Option<(Vec<RGB888>, bool)> {
     let mut palette = BTreeMap::new();
     let mut is_gray = true;
     for rgba in image.all_pixels() {

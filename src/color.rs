@@ -1,3 +1,5 @@
+//! Color types
+
 #[repr(C, align(4))]
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct RGBA8888 {
@@ -70,7 +72,7 @@ impl RGBA8888 {
 
     #[inline]
     const fn _ordinal(&self) -> u32 {
-        ((self.a as u32) << 24) | ((self.b as u32) << 16) | ((self.g as u32) << 8) | (self.r as u32)
+        u32::from_le_bytes([self.r, self.g, self.b, self.a])
     }
 
     #[inline]
@@ -167,7 +169,7 @@ impl RGB888 {
 
     #[inline]
     const fn _ordinal(&self) -> u32 {
-        ((self.b as u32) << 16) | ((self.g as u32) << 8) | (self.r as u32)
+        u32::from_le_bytes([self.r, self.g, self.b, 0])
     }
 
     #[inline]

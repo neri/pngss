@@ -26,7 +26,7 @@ fn hex_dump(data: &[u8]) {
     }
 }
 
-fn basic_image_test(input: &ImageData, expected: Option<&[u8]>) {
+fn basic_image_test(input: &ImageDataRef, expected: Option<&[u8]>) {
     let encoded = PngEncoder::encode(input, CompressionLevel::Best).unwrap();
 
     if let Some(expected) = expected {
@@ -98,7 +98,7 @@ fn instantiate() {
 #[test]
 fn test_black_8x8() {
     let data = &[0u8; 8 * 8 * 3];
-    let image = ImageData::new(8, 8, ColorType::RGB, &[], data);
+    let image = ImageDataRef::new(8, 8, ColorType::RGB, &[], data);
 
     let expected = &[
         0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44,
@@ -114,7 +114,7 @@ fn test_black_8x8() {
 #[test]
 fn test_white_8x8() {
     let data = &[0xffu8; 8 * 8 * 3];
-    let image = ImageData::new(8, 8, ColorType::RGB, &[], data);
+    let image = ImageDataRef::new(8, 8, ColorType::RGB, &[], data);
 
     let expected = &[
         0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44,

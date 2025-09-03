@@ -167,7 +167,7 @@ impl<'a, DD: DeflateDecoder> CustomPngDecoder<'a, DD> {
     }
 
     /// Decodes PNG images and returns image data.
-    pub fn decode(&self) -> Result<ImageDataOwned, DecodeError> {
+    pub fn decode(&self) -> Result<ImageData, DecodeError> {
         let mut chunks = self.chunks()?;
         let mut palette = Option::<Vec<RGB888>>::None;
 
@@ -204,7 +204,7 @@ impl<'a, DD: DeflateDecoder> CustomPngDecoder<'a, DD> {
         let data = DD::inflate(&data, self.decoded_buffer_size())?;
 
         // Apply filters
-        let mut reconstructed = self.apply_filter(data)?;
+        let mut reconstructed = self.apply_filter_inplace(data)?;
 
         // fix bit depth less than 8
         if self.bit_depth < BitDepth::Eight {
@@ -287,15 +287,15 @@ impl<'a, DD: DeflateDecoder> CustomPngDecoder<'a, DD> {
         }
 
         // return the image data
-        Ok(ImageDataOwned {
+        Ok(ImageData {
             info: self.info,
-            palette: palette.unwrap_or_default(),
-            data: reconstructed,
+            palette: palette.unwrap_or_default().into_boxed_slice(),
+            data: reconstructed.into_boxed_slice(),
         })
     }
 
     #[inline(always)]
-    fn apply_filter(&self, mut buffer: Vec<u8>) -> Result<Vec<u8>, DecodeError> {
+    fn apply_filter_inplace(&self, mut buffer: Vec<u8>) -> Result<Vec<u8>, DecodeError> {
         let width = self.info.width as usize;
         let stride = self.decoded_buffer_stride() - 1;
 

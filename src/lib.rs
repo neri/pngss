@@ -46,8 +46,12 @@ pub enum DecodeError {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EncodeError {
+    /// Invalid input data
     InvalidInput,
-    InvalidData,
+    /// Out of memory
+    OutOfMemory,
+    /// Other encoding errors
+    EncodeError,
 }
 
 pub struct PngChunk<'a> {
@@ -109,10 +113,10 @@ impl<'a> PngChunk<'a> {
     ///
     /// The CRC is automatically calculated with the current contents.
     pub fn write_to(&self, buf: &mut Vec<u8>) {
-        buf.extend_from_slice(&(self.len() as u32).to_be_bytes());
+        buf.extend_from_slice(&Be32::from_u32(self.len() as u32).0);
         buf.extend_from_slice(&self.chunk_type.0);
         buf.extend_from_slice(self.data);
-        buf.extend_from_slice(&self.compute_valid_crc().to_be_bytes());
+        buf.extend_from_slice(&Be32::from_u32(self.compute_valid_crc()).0);
     }
 }
 
@@ -208,7 +212,7 @@ impl FourCC {
     /// Panics if the FourCC contains invalid UTF-8 characters.
     #[inline]
     pub fn as_str(&self) -> &str {
-        core::str::from_utf8(&self.0).unwrap()
+        core::str::from_utf8(&self.0).expect("Invalid UTF-8 in FourCC")
     }
 }
 
@@ -256,7 +260,7 @@ impl FilterType {
 }
 
 pub(crate) fn average(lhs: u8, rhs: u8) -> u8 {
-    let avg = (lhs as u16 + rhs as u16) >> 1;
+    let avg = (lhs as usize).wrapping_add(rhs as usize).wrapping_shr(1);
     avg as u8
 }
 

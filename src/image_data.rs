@@ -1,16 +1,21 @@
+//! Image data representation
+
 use crate::*;
+use alloc::borrow::ToOwned;
 use alloc::boxed::Box;
 use alloc::vec::Vec;
+use core::borrow::Borrow;
 use core::fmt;
+use core::mem::transmute;
 use core::ops::Deref;
 
-pub struct ImageDataOwned {
+pub struct ImageData {
     pub(crate) info: ImageInfo,
-    pub(crate) palette: Vec<RGB888>,
-    pub(crate) data: Vec<u8>,
+    pub(crate) palette: Box<[RGB888]>,
+    pub(crate) data: Box<[u8]>,
 }
 
-pub struct ImageData<'a> {
+pub struct ImageDataRef<'a> {
     pub(crate) info: ImageInfo,
     pub(crate) palette: &'a [RGB888],
     pub(crate) data: &'a [u8],
@@ -229,16 +234,7 @@ impl NumberOfChannnels {
     }
 }
 
-impl ImageDataOwned {
-    #[inline]
-    pub fn as_ref<'a>(&'a self) -> ImageData<'a> {
-        ImageData {
-            info: self.info.clone(),
-            palette: &self.palette,
-            data: &self.data,
-        }
-    }
-
+impl ImageData {
     #[inline]
     pub fn info(&self) -> &ImageInfo {
         &self.info
@@ -283,7 +279,7 @@ impl ImageDataOwned {
     pub fn into_rgba_bytes<'a>(self) -> RgbaBytes<'a> {
         self.info
             .color_type
-            .into_rgba_bytes(self.data, self.palette.as_ref())
+            .into_rgba_bytes(self.data.into(), self.palette.as_ref())
     }
 
     /// Return image data in RGB format.
@@ -303,11 +299,11 @@ impl ImageDataOwned {
     pub fn into_rgb_bytes<'a>(self) -> RgbBytes<'a> {
         self.info
             .color_type
-            .into_rgb_bytes(self.data, self.palette.as_ref())
+            .into_rgb_bytes(self.data.into(), self.palette.as_ref())
     }
 }
 
-impl<'a> ImageData<'a> {
+impl<'a> ImageDataRef<'a> {
     #[inline]
     pub fn new(
         width: u32,
@@ -372,6 +368,26 @@ impl<'a> ImageData<'a> {
     }
 }
 
+impl ToOwned for ImageDataRef<'_> {
+    type Owned = ImageData;
+
+    #[inline]
+    fn to_owned(&self) -> ImageData {
+        ImageData {
+            info: self.info,
+            palette: self.palette.to_owned().into_boxed_slice(),
+            data: self.data.to_owned().into_boxed_slice(),
+        }
+    }
+}
+
+impl<'a> Borrow<ImageDataRef<'a>> for ImageData {
+    #[inline]
+    fn borrow(&self) -> &'a ImageDataRef<'a> {
+        unsafe { transmute(self) }
+    }
+}
+
 /// A byte array stored in the order `R, G, B, A`. It can be `Deref` by `&[u8]`
 pub struct RgbaBytes<'a>(Cow<'a, [u8]>);
 
@@ -384,6 +400,11 @@ impl<'a> RgbaBytes<'a> {
     #[inline]
     pub fn into_owned(self) -> Vec<u8> {
         self.0.into_owned()
+    }
+
+    #[inline]
+    pub fn as_ref(&self) -> &[u8] {
+        self.0.as_ref()
     }
 }
 
@@ -408,6 +429,11 @@ impl<'a> RgbBytes<'a> {
     #[inline]
     pub fn into_owned(self) -> Vec<u8> {
         self.0.into_owned()
+    }
+
+    #[inline]
+    pub fn as_ref(&self) -> &[u8] {
+        self.0.as_ref()
     }
 }
 
