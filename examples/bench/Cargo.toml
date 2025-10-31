@@ -9,4 +9,4 @@ version = "0.1.0"
 pngss = { path = "../../" }
 compress.workspace = true
 
-png = { version = "0.17" }
+png = { version = "0.18" }

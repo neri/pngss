@@ -177,7 +177,8 @@ impl<'a, DD: DeflateDecoder> CustomPngDecoder<'a, DD> {
             match chunk.chunk_type() {
                 FourCC::IDAT => break,
                 FourCC::PLTE => {
-                    if chunk.len() % 3 != 0 || palette.is_some() {
+                    // If the palette is already set, or if the chunk size is invalid, return an error.
+                    if palette.is_some() || chunk.len() > 3 * 256 || chunk.len() % 3 != 0 {
                         return Err(DecodeError::InvalidData);
                     }
                     palette = Some(
@@ -189,6 +190,7 @@ impl<'a, DD: DeflateDecoder> CustomPngDecoder<'a, DD> {
                     );
                 }
                 four_cc => {
+                    // If there is an unknown critical chunk, return an error.
                     if four_cc.is_critical() {
                         return Err(DecodeError::UnsupportedFormat);
                     }
@@ -281,7 +283,7 @@ impl<'a, DD: DeflateDecoder> CustomPngDecoder<'a, DD> {
                 return Err(DecodeError::InvalidData);
             };
             let max_index = reconstructed.iter().copied().max().unwrap() as usize;
-            if palette.len() > 256 || max_index >= palette.len() {
+            if max_index >= palette.len() {
                 return Err(DecodeError::InvalidData);
             }
         }
