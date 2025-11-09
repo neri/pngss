@@ -1,6 +1,9 @@
 //! bench
 
-use std::{env, fs::File, io::Read, time::Duration};
+use std::env;
+use std::fs::File;
+use std::io::{Cursor, Read};
+use std::time::Duration;
 
 fn main() {
     let mut args = env::args();
@@ -48,9 +51,9 @@ fn main() {
 
             let time0 = std::time::Instant::now();
             for _ in 0..times {
-                let decoder = png::Decoder::new(data.as_slice());
+                let decoder = png::Decoder::new(Cursor::new(&data));
                 let mut reader = decoder.read_info().unwrap();
-                let mut buf = vec![0; reader.output_buffer_size()];
+                let mut buf = vec![0; reader.output_buffer_size().unwrap()];
                 let _info = reader.next_frame(&mut buf).unwrap();
                 drop(reader);
             }

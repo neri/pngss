@@ -168,7 +168,7 @@ impl RGB888 {
     }
 
     #[inline]
-    const fn _ordinal(&self) -> u32 {
+    pub const fn ordinal(&self) -> u32 {
         u32::from_le_bytes([self.r, self.g, self.b, 0])
     }
 
@@ -186,14 +186,14 @@ impl RGB888 {
 impl PartialOrd for RGB888 {
     #[inline]
     fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
-        self._ordinal().partial_cmp(&other._ordinal())
+        self.ordinal().partial_cmp(&other.ordinal())
     }
 }
 
 impl Ord for RGB888 {
     #[inline]
     fn cmp(&self, other: &Self) -> core::cmp::Ordering {
-        self._ordinal().cmp(&other._ordinal())
+        self.ordinal().cmp(&other.ordinal())
     }
 }
 

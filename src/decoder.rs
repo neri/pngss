@@ -1,13 +1,32 @@
 //! A subset implementation of PNG Decoder
-
 use super::*;
-use core::{
-    marker::PhantomData,
-    sync::atomic::{Ordering, compiler_fence},
-};
+use core::marker::PhantomData;
+use core::ops::Deref;
+use core::sync::atomic::{Ordering, compiler_fence};
 
 /// Default PNG decoder using the default deflate decoder.
-pub type PngDecoder<'a> = CustomPngDecoder<'a, DefaultDeflateDecoder>;
+#[derive(Debug)]
+#[repr(transparent)]
+pub struct PngDecoder<'a>(CustomPngDecoder<'a, DefaultDeflateDecoder>);
+
+impl<'a> PngDecoder<'a> {
+    /// Generates a PNG decoder from the specified slice.
+    ///
+    /// Returns an error if the signature is invalid, if the IHDR chunk does not exist, or if it has unsupported information.
+    #[inline]
+    pub fn new(input: &'a [u8]) -> Result<Self, DecodeError> {
+        CustomPngDecoder::new(input).map(|v| Self(v))
+    }
+}
+
+impl<'a> Deref for PngDecoder<'a> {
+    type Target = CustomPngDecoder<'a, DefaultDeflateDecoder>;
+
+    #[inline]
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
 
 /// Interface to implement the inflate (deflate decompression) function
 pub trait DeflateDecoder {
@@ -60,7 +79,7 @@ impl<'a, DD: DeflateDecoder> CustomPngDecoder<'a, DD> {
             // Zero is an invalid value.
             return Err(DecodeError::InvalidData);
         }
-        if cfg!(target_pointer_width = "32") && (width.saturating_mul(height) > 0x1000_0000) {
+        if cfg!(target_pointer_width = "32") && (width.saturating_mul(height) >= 0x1000_0000) {
             // TODO: maybe overflow
             return Err(DecodeError::UnsupportedFormat);
         }
@@ -302,7 +321,7 @@ impl<'a, DD: DeflateDecoder> CustomPngDecoder<'a, DD> {
         let stride = self.decoded_buffer_stride() - 1;
 
         match self.info.color_type.n_channels() {
-            NumberOfChannnels::One => {
+            ChannelCount::One => {
                 let mut dest = 0;
                 let mut src = 0;
                 let mut prev_line = Option::<usize>::None;
@@ -403,7 +422,7 @@ impl<'a, DD: DeflateDecoder> CustomPngDecoder<'a, DD> {
                     prev_line = Some(this_line);
                 }
             }
-            NumberOfChannnels::Two => {
+            ChannelCount::Two => {
                 let mut dest = 0;
                 let mut src = 0;
                 let mut prev_line = Option::<usize>::None;
@@ -522,7 +541,7 @@ impl<'a, DD: DeflateDecoder> CustomPngDecoder<'a, DD> {
                     prev_line = Some(this_line);
                 }
             }
-            NumberOfChannnels::Three => {
+            ChannelCount::Three => {
                 let mut dest = 0;
                 let mut src = 0;
                 let mut prev_line = Option::<usize>::None;
@@ -657,7 +676,7 @@ impl<'a, DD: DeflateDecoder> CustomPngDecoder<'a, DD> {
                     prev_line = Some(this_line);
                 }
             }
-            NumberOfChannnels::Four => {
+            ChannelCount::Four => {
                 let mut dest = 0;
                 let mut src = 0;
                 let mut prev_line = Option::<usize>::None;

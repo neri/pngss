@@ -1,5 +1,4 @@
 //! Image data representation
-
 use crate::*;
 use alloc::borrow::ToOwned;
 use alloc::boxed::Box;
@@ -51,13 +50,13 @@ impl ColorType {
     /// - RGBA: 4
     /// - Indexed: 1
     #[inline]
-    pub fn n_channels(&self) -> NumberOfChannnels {
+    pub fn n_channels(&self) -> ChannelCount {
         match self {
-            ColorType::Grayscale => NumberOfChannnels::One,
-            ColorType::GrayscaleAlpha => NumberOfChannnels::Two,
-            ColorType::RGB => NumberOfChannnels::Three,
-            ColorType::RGBA => NumberOfChannnels::Four,
-            ColorType::Indexed => NumberOfChannnels::One,
+            ColorType::Grayscale => ChannelCount::One,
+            ColorType::GrayscaleAlpha => ChannelCount::Two,
+            ColorType::RGB => ChannelCount::Three,
+            ColorType::RGBA => ChannelCount::Four,
+            ColorType::Indexed => ChannelCount::One,
         }
     }
 
@@ -211,8 +210,9 @@ impl ColorType {
     }
 }
 
+/// Number of channels
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum NumberOfChannnels {
+pub enum ChannelCount {
     /// Grayscale or Indexed
     /// `[y, ...]` or `[index, ...]`
     One = 1,
@@ -227,7 +227,7 @@ pub enum NumberOfChannnels {
     Four,
 }
 
-impl NumberOfChannnels {
+impl ChannelCount {
     #[inline]
     pub const fn as_usize(self) -> usize {
         self as usize
@@ -452,6 +452,7 @@ pub enum BitDepth {
     Two = 2,
     Four = 4,
     Eight = 8,
+    // Sixteen = 16,
 }
 
 impl BitDepth {

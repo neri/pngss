@@ -1,5 +1,4 @@
 //! A subset implementation of PNG Encoder
-
 use super::*;
 use alloc::collections::BTreeMap;
 use compress::entropy::entropy_of_blocks;
@@ -189,12 +188,11 @@ impl<DE: DeflateEncoder> CustomPngEncoder<DE> {
         };
 
         let idat = if level == CompressionLevel::Fast {
-            Self::generate_idat(stride, height, &data, NumberOfChannnels::One, level, true)?
+            Self::generate_idat(stride, height, &data, ChannelCount::One, level, true)?
         } else {
-            let idat1 =
-                Self::generate_idat(stride, height, &data, NumberOfChannnels::One, level, true)?;
+            let idat1 = Self::generate_idat(stride, height, &data, ChannelCount::One, level, true)?;
             let idat2 =
-                Self::generate_idat(stride, height, &data, NumberOfChannnels::One, level, false)?;
+                Self::generate_idat(stride, height, &data, ChannelCount::One, level, false)?;
             if idat1.len() < idat2.len() {
                 idat1
             } else {
@@ -217,7 +215,7 @@ impl<DE: DeflateEncoder> CustomPngEncoder<DE> {
         stride: usize,
         height: u32,
         data: &[u8],
-        n_channels: NumberOfChannnels,
+        n_channels: ChannelCount,
         level: CompressionLevel,
         is_filter_none: bool,
     ) -> Result<Vec<u8>, EncodeError> {
@@ -244,7 +242,7 @@ impl<DE: DeflateEncoder> CustomPngEncoder<DE> {
     fn process_scanline<'a>(
         this_line: &'a [u8],
         prev_line: &Option<&[u8]>,
-        n_channels: NumberOfChannnels,
+        n_channels: ChannelCount,
     ) -> (FilterType, Cow<'a, [u8]>) {
         // Filter None
         // Filt(x) = Orig(x)
@@ -390,17 +388,19 @@ pub fn attempt_to_generate_palette(image: &ImageDataRef) -> Option<(Vec<RGB888>,
     let mut palette = BTreeMap::new();
     let mut is_gray = true;
     for rgba in image.all_pixels() {
-        if rgba.a() != 0xFF {
+        if rgba.a() != u8::MAX {
+            // Contains transparency; cannot generate palette
             return None;
         }
         let rgb = RGB888::from_rgba(rgba);
         is_gray &= rgb.is_gray();
-        palette.entry(rgb).or_insert(1);
+        palette.entry(rgb.ordinal()).or_insert(rgb);
         if palette.keys().len() > 256 {
+            // Too many colors for palette
             return None;
         }
     }
-    let mut palette = palette.into_iter().map(|v| v.0).collect::<Vec<_>>();
+    let mut palette = palette.into_iter().map(|v| v.1).collect::<Vec<_>>();
     palette.sort();
 
     Some((palette, is_gray))
